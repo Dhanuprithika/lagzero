@@ -1,5 +1,4 @@
 # lagzero
-# LagZero
 
 > AI assistance that doesn't wait for the internet.
 
