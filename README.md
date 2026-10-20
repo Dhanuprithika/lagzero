@@ -77,7 +77,9 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 ### Confirmed & Implemented
 - **Chrome Extension Manifest V3:** Modern Chrome extension platform configuration.
 - **Chrome Side Panel API:** Native sidebar integration via `chrome.sidePanel`.
-- **Background Service Worker:** Lightweight service worker (`src/background.ts`) managing extension lifecycle and panel behaviors.
+- **Background Service Worker:** Service worker (`src/background.ts`) managing extension lifecycle, side panel behaviors, and message routing.
+- **Content Script:** Minimal content script (`src/content.ts`) responding to typed requests for tab metadata.
+- **Typed Messaging Contract:** Discriminated union message protocol (`src/types/messaging.ts`) supporting reachability (`PING`), tab querying (`GET_ACTIVE_TAB`), and metadata (`GET_PAGE_INFO`).
 - **Frontend Framework:** React 19 + TypeScript.
 - **Build Tool:** Vite 8 configured for multi-entry extension packaging (`base: './'`).
 - **Styling:** Custom dark developer theme adhering to strict palette (`#0D0D0D`, `#2563EB`, `#FFFFFF`).
@@ -98,8 +100,8 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 
 | Milestone | Description | Status |
 | :--- | :--- | :--- |
-| **Milestone 1** | **Chrome Extension Setup:** MV3 manifest, side panel integration, Vite build, React+TS scaffold, dark UI | **Completed** (Verified) |
-| **Milestone 2** | **Extension Communication:** Message passing between sidebar, background worker, and active tab | Pending |
+| **Milestone 1** | **Chrome Extension Setup:** MV3 manifest, side panel integration, Vite build, React+TS scaffold, dark UI | **Completed** (Verified in Chrome) |
+| **Milestone 2** | **Extension Communication:** Typed message passing between sidebar, background worker, and active tab content script | **Completed** (Implemented and manually verified in Chrome) |
 | **Milestone 3** | **Content Extraction:** Extract clean readability text, title, URL, and timestamp | Pending |
 | **Milestone 4** | **Chunking & Metadata:** Heading-aware content segmentation with source tracking | Pending |
 | **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | Pending |

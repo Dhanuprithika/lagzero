@@ -12,11 +12,15 @@ export default defineConfig({
       input: {
         sidepanel: resolve(import.meta.dirname, 'sidepanel.html'),
         background: resolve(import.meta.dirname, 'src/background.ts'),
+        content: resolve(import.meta.dirname, 'src/content.ts'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
           if (chunkInfo.name === 'background') {
             return 'background.js'
+          }
+          if (chunkInfo.name === 'content') {
+            return 'content.js'
           }
           return 'assets/[name]-[hash].js'
         },

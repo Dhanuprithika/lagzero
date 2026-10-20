@@ -56,6 +56,11 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.3);
+  transition: background-color 0.2s ease;
+}
+
+.status-dot.dot-active {
   background-color: var(--accent-blue);
 }
 
@@ -64,14 +69,14 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 24px 4px;
+  padding: 20px 0;
+  gap: 20px;
 }
 
 .welcome-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 24px;
 }
 
 .welcome-heading {
@@ -87,6 +92,148 @@
   color: var(--text-muted);
 }
 
+/* Communication Test Card (Milestone 2) */
+.comm-test-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background-color: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+.comm-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.comm-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.test-btn {
+  padding: 5px 10px;
+  background-color: var(--accent-blue);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: opacity 0.15s ease;
+}
+
+.test-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.test-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.comm-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comm-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.row-label {
+  color: var(--text-muted);
+}
+
+.row-val {
+  font-weight: 500;
+}
+
+.val-success {
+  color: #FFFFFF;
+}
+
+.val-checking {
+  color: var(--accent-blue);
+}
+
+.val-error {
+  color: #FFFFFF;
+  opacity: 0.8;
+}
+
+.val-muted {
+  color: var(--text-muted);
+}
+
+.page-info-box {
+  margin-top: 4px;
+  padding: 10px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.info-item {
+  display: flex;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-key {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.info-val {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error-box {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid var(--accent-blue);
+  border-radius: 2px;
+}
+
+.error-text {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.comm-timestamp {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* Input Section */
 .input-section {
   width: 100%;
 }
