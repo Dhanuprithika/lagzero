@@ -205,6 +205,85 @@ chrome.runtime.onMessage.addListener(
       return true // Keep channel open for async response
     }
 
+    // Handle EXTRACT_PAGE_CONTENT (forwarded to active tab content script)
+    if (message.type === 'EXTRACT_PAGE_CONTENT') {
+      const resolveTab = async () => {
+        if (typeof message.tabId === 'number') {
+          try {
+            return await chrome.tabs.get(message.tabId)
+          } catch (tabErr) {
+            console.warn('[LagZero Background] Could not find tab by ID:', message.tabId, tabErr)
+          }
+        }
+        return await getActiveTab()
+      }
+
+      resolveTab()
+        .then(async (tab) => {
+          if (!tab || tab.id === undefined) {
+            sendResponse({
+              success: false,
+              error: {
+                code: 'NO_ACTIVE_TAB',
+                message: 'No active tab available for extraction.',
+              },
+            })
+            return
+          }
+
+          if (isRestrictedUrl(tab.url)) {
+            sendResponse({
+              success: false,
+              error: {
+                code: 'RESTRICTED_PAGE',
+                message: `Page "${tab.url || 'restricted'}" does not allow content extraction (internal browser or webstore page).`,
+              },
+            })
+            return
+          }
+
+          try {
+            const extractResponse = await chrome.tabs.sendMessage<ExtensionRequest, ExtensionResponse>(
+              tab.id,
+              { type: 'EXTRACT_PAGE_CONTENT' }
+            )
+
+            if (!extractResponse) {
+              sendResponse({
+                success: false,
+                error: {
+                  code: 'CONTENT_SCRIPT_UNREACHABLE',
+                  message: 'No response from content script. Please refresh the webpage to ensure the extraction script is active.',
+                },
+              })
+              return
+            }
+
+            sendResponse(extractResponse)
+          } catch (sendErr) {
+            const chromeErrorMsg = chrome.runtime.lastError?.message || (sendErr instanceof Error ? sendErr.message : String(sendErr))
+            console.warn('[LagZero Background] chrome.tabs.sendMessage EXTRACT_PAGE_CONTENT error:', chromeErrorMsg)
+            sendResponse({
+              success: false,
+              error: {
+                code: 'CONTENT_SCRIPT_UNREACHABLE',
+                message: `Cannot extract content on tab ${tab.id} (${chromeErrorMsg}). Refresh the webpage to inject the content script.`,
+              },
+            })
+          }
+        })
+        .catch((err) => {
+          sendResponse({
+            success: false,
+            error: {
+              code: 'INTERNAL_ERROR',
+              message: err instanceof Error ? err.message : 'Error relaying extraction message to content script.',
+            },
+          })
+        })
+      return true // Keep channel open for async response
+    }
+
     sendResponse({
       success: false,
       error: {

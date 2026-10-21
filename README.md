@@ -78,14 +78,14 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 - **Chrome Extension Manifest V3:** Modern Chrome extension platform configuration.
 - **Chrome Side Panel API:** Native sidebar integration via `chrome.sidePanel`.
 - **Background Service Worker:** Service worker (`src/background.ts`) managing extension lifecycle, side panel behaviors, and message routing.
-- **Content Script:** Minimal content script (`src/content.ts`) responding to typed requests for tab metadata.
-- **Typed Messaging Contract:** Discriminated union message protocol (`src/types/messaging.ts`) supporting reachability (`PING`), tab querying (`GET_ACTIVE_TAB`), and metadata (`GET_PAGE_INFO`).
+- **Content Script:** Content script (`src/content.ts`) with Mozilla Readability (`@mozilla/readability`) for clean article extraction.
+- **Typed Messaging Contract:** Discriminated union message protocol (`src/types/messaging.ts`) supporting reachability (`PING`), tab querying (`GET_ACTIVE_TAB`), metadata (`GET_PAGE_INFO`), and content extraction (`EXTRACT_PAGE_CONTENT`).
+- **Webpage Content Extraction:** Mozilla Readability (`@mozilla/readability`) parser executed safely on cloned document nodes.
 - **Frontend Framework:** React 19 + TypeScript.
 - **Build Tool:** Vite 8 configured for multi-entry extension packaging (`base: './'`).
 - **Styling:** Custom dark developer theme adhering to strict palette (`#0D0D0D`, `#2563EB`, `#FFFFFF`).
 
 ### Planned Stack (In Progress / Future Phases)
-- **Content Extraction:** Readability.js *(Phase 1, planned)*
 - **Local Storage:** IndexedDB *(Phase 1, planned)*
 - **Local Embeddings & Vector Search:** In-browser embeddings / vector indexing *(Phase 2, planned)*
 - **Local Inference:** WebGPU / WebLLM *(Phase 2, planned)*
@@ -102,7 +102,7 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 | :--- | :--- | :--- |
 | **Milestone 1** | **Chrome Extension Setup:** MV3 manifest, side panel integration, Vite build, React+TS scaffold, dark UI | **Completed** (Verified in Chrome) |
 | **Milestone 2** | **Extension Communication:** Typed message passing between sidebar, background worker, and active tab content script | **Completed** (Implemented and manually verified in Chrome) |
-| **Milestone 3** | **Content Extraction:** Extract clean readability text, title, URL, and timestamp | Pending |
+| **Milestone 3** | **Content Extraction:** Extract clean readability text, title, URL, and timestamp via Mozilla Readability | **Completed** (Verified in Chrome) |
 | **Milestone 4** | **Chunking & Metadata:** Heading-aware content segmentation with source tracking | Pending |
 | **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | Pending |
 | **Milestone 6** | **Local Keyword Search:** Fast client-side lexical search over stored passages | Pending |

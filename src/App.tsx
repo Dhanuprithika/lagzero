@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  ExtractedContent,
+  ExtractPageContentResponse,
   GetActiveTabResponse,
   GetPageInfoResponse,
   PageMetadata,
@@ -17,10 +19,21 @@ interface ConnectionState {
   lastTestedAt?: string
 }
 
+interface ExtractionState {
+  status: 'idle' | 'extracting' | 'success' | 'error'
+  content?: ExtractedContent
+  errorMessage?: string
+  extractedAt?: string
+}
+
 export default function App() {
   const [connState, setConnState] = useState<ConnectionState>({
     status: 'idle',
     backgroundPong: false,
+  })
+
+  const [extractState, setExtractState] = useState<ExtractionState>({
+    status: 'idle',
   })
 
   const testConnection = useCallback(async () => {
@@ -136,6 +149,86 @@ export default function App() {
       })
     }
   }, [])
+
+  const extractContent = useCallback(async () => {
+    setExtractState({
+      status: 'extracting',
+      errorMessage: undefined,
+    })
+
+    try {
+      // First ensure active tab is known
+      let targetTabId = connState.activeTab?.id
+      if (typeof targetTabId !== 'number') {
+        const tabResponse = await new Promise<GetActiveTabResponse>((resolve) => {
+          chrome.runtime.sendMessage({ type: 'GET_ACTIVE_TAB' }, (res: GetActiveTabResponse) => {
+            if (chrome.runtime.lastError) {
+              resolve({
+                success: false,
+                error: {
+                  code: 'INTERNAL_ERROR',
+                  message: chrome.runtime.lastError.message || 'Failed to query active tab.',
+                },
+              })
+            } else {
+              resolve(res)
+            }
+          })
+        })
+
+        if (!tabResponse || !tabResponse.success) {
+          setExtractState({
+            status: 'error',
+            errorMessage: tabResponse?.error?.message || 'Could not identify active tab for extraction.',
+          })
+          return
+        }
+
+        targetTabId = tabResponse.data.id
+        setConnState((prev) => ({ ...prev, activeTab: tabResponse.data }))
+      }
+
+      const response = await new Promise<ExtractPageContentResponse>((resolve) => {
+        chrome.runtime.sendMessage(
+          { type: 'EXTRACT_PAGE_CONTENT', tabId: targetTabId },
+          (res: ExtractPageContentResponse) => {
+            if (chrome.runtime.lastError) {
+              resolve({
+                success: false,
+                error: {
+                  code: 'INTERNAL_ERROR',
+                  message: chrome.runtime.lastError.message || 'Extraction communication failed.',
+                },
+              })
+            } else {
+              resolve(res)
+            }
+          }
+        )
+      })
+
+      if (!response || !response.success) {
+        setExtractState({
+          status: 'error',
+          errorMessage: response?.error?.message || 'Failed to extract content from active page.',
+          extractedAt: new Date().toLocaleTimeString(),
+        })
+        return
+      }
+
+      setExtractState({
+        status: 'success',
+        content: response.data,
+        extractedAt: new Date().toLocaleTimeString(),
+      })
+    } catch (err) {
+      setExtractState({
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : 'Unexpected extraction failure.',
+        extractedAt: new Date().toLocaleTimeString(),
+      })
+    }
+  }, [connState.activeTab])
 
   // Auto-check connection upon sidebar load
   useEffect(() => {
@@ -294,6 +387,113 @@ export default function App() {
             {connState.lastTestedAt && (
               <div className="comm-timestamp">
                 <span>Last tested: {connState.lastTestedAt}</span>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Milestone 3 Content Extraction Card */}
+        <section className="extract-card" aria-label="Webpage Content Extraction">
+          <div className="extract-card-header">
+            <div>
+              <span className="extract-card-title">Page Content Extraction</span>
+              <span className="extract-card-sub">Extract readable article text</span>
+            </div>
+            <button
+              type="button"
+              className="extract-btn"
+              onClick={extractContent}
+              disabled={extractState.status === 'extracting'}
+            >
+              {extractState.status === 'extracting' ? 'Extracting…' : 'Extract Page Content'}
+            </button>
+          </div>
+
+          <div className="extract-body">
+            {extractState.status === 'extracting' && (
+              <div className="extract-loading-box">
+                <span className="loading-spinner" aria-hidden="true" />
+                <span className="loading-text">Parsing readable content with Readability.js…</span>
+              </div>
+            )}
+
+            {extractState.status === 'error' && extractState.errorMessage && (
+              <div className="error-box" role="alert">
+                <span className="error-text">{extractState.errorMessage}</span>
+                {extractState.extractedAt && (
+                  <div className="comm-timestamp">
+                    <span>Attempted at: {extractState.extractedAt}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {extractState.status === 'success' && extractState.content && (
+              <div className="extract-result-box">
+                {/* Article Header & Metadata */}
+                <div className="extract-meta-header">
+                  <h2 className="extract-title">
+                    {extractState.content.title || '(Untitled Document)'}
+                  </h2>
+                  <div className="extract-source">
+                    <span className="meta-label">Source:</span>{' '}
+                    <span className="source-url" title={extractState.content.url}>
+                      {extractState.content.url}
+                    </span>
+                  </div>
+
+                  {/* Optional Metadata pills */}
+                  <div className="extract-pills">
+                    {extractState.content.siteName && (
+                      <span className="meta-pill">
+                        <strong>Site:</strong> {extractState.content.siteName}
+                      </span>
+                    )}
+                    {extractState.content.byline && (
+                      <span className="meta-pill">
+                        <strong>Author:</strong> {extractState.content.byline}
+                      </span>
+                    )}
+                    {extractState.content.publishedTime && (
+                      <span className="meta-pill">
+                        <strong>Date:</strong> {extractState.content.publishedTime}
+                      </span>
+                    )}
+                    <span className="meta-pill">
+                      <strong>Chars:</strong> {extractState.content.textContent.length.toLocaleString()}
+                    </span>
+                  </div>
+
+                  {extractState.content.excerpt && (
+                    <div className="extract-excerpt">
+                      <em>&ldquo;{extractState.content.excerpt}&rdquo;</em>
+                    </div>
+                  )}
+
+                  {extractState.content.isTruncated && (
+                    <div className="truncation-notice">
+                      Notice: Content was truncated at 100,000 characters from an original length of{' '}
+                      {extractState.content.originalLength.toLocaleString()} characters.
+                    </div>
+                  )}
+                </div>
+
+                {/* Scrollable Clean Text Preview */}
+                <div className="extract-text-preview" tabIndex={0} aria-label="Extracted readable text">
+                  <pre className="readable-text">{extractState.content.textContent}</pre>
+                </div>
+
+                {extractState.extractedAt && (
+                  <div className="comm-timestamp">
+                    <span>Extracted at: {extractState.extractedAt}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {extractState.status === 'idle' && (
+              <div className="extract-idle-hint">
+                <span>Click &ldquo;Extract Page Content&rdquo; to parse the active tab&apos;s main article text.</span>
               </div>
             )}
           </div>
