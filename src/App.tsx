@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  ChunkedDocument,
   ExtractedContent,
   ExtractPageContentResponse,
   GetActiveTabResponse,
@@ -8,6 +9,7 @@ import type {
   PingResponse,
   TabInfo,
 } from './types/messaging'
+import { chunkContent } from './utils/chunkContent'
 import './App.css'
 
 interface ConnectionState {
@@ -26,6 +28,13 @@ interface ExtractionState {
   extractedAt?: string
 }
 
+interface ChunkingState {
+  status: 'idle' | 'chunking' | 'success' | 'error'
+  chunkedDoc?: ChunkedDocument
+  errorMessage?: string
+  chunkedAt?: string
+}
+
 export default function App() {
   const [connState, setConnState] = useState<ConnectionState>({
     status: 'idle',
@@ -33,6 +42,10 @@ export default function App() {
   })
 
   const [extractState, setExtractState] = useState<ExtractionState>({
+    status: 'idle',
+  })
+
+  const [chunkState, setChunkState] = useState<ChunkingState>({
     status: 'idle',
   })
 
@@ -155,6 +168,9 @@ export default function App() {
       status: 'extracting',
       errorMessage: undefined,
     })
+    setChunkState({
+      status: 'idle',
+    })
 
     try {
       // First ensure active tab is known
@@ -229,6 +245,35 @@ export default function App() {
       })
     }
   }, [connState.activeTab])
+
+  const handleChunkContent = useCallback(() => {
+    if (!extractState.content) {
+      setChunkState({
+        status: 'error',
+        errorMessage: 'No extracted webpage content available to chunk. Please extract page content first.',
+      })
+      return
+    }
+
+    setChunkState({
+      status: 'chunking',
+    })
+
+    try {
+      const chunked = chunkContent(extractState.content)
+      setChunkState({
+        status: 'success',
+        chunkedDoc: chunked,
+        chunkedAt: new Date().toLocaleTimeString(),
+      })
+    } catch (err) {
+      setChunkState({
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : 'An error occurred during content chunking.',
+        chunkedAt: new Date().toLocaleTimeString(),
+      })
+    }
+  }, [extractState.content])
 
   // Auto-check connection upon sidebar load
   useEffect(() => {
@@ -494,6 +539,116 @@ export default function App() {
             {extractState.status === 'idle' && (
               <div className="extract-idle-hint">
                 <span>Click &ldquo;Extract Page Content&rdquo; to parse the active tab&apos;s main article text.</span>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Milestone 4 Content Chunking Card */}
+        <section className="chunk-card" aria-label="Content Chunking">
+          <div className="chunk-card-header">
+            <div>
+              <span className="chunk-card-title">Content Chunking</span>
+              <span className="chunk-card-sub">Paragraph-aware segmentation</span>
+            </div>
+            <button
+              type="button"
+              className="chunk-btn"
+              onClick={handleChunkContent}
+              disabled={!extractState.content || chunkState.status === 'chunking'}
+            >
+              {chunkState.status === 'chunking' ? 'Chunking…' : 'Chunk Content'}
+            </button>
+          </div>
+
+          <div className="chunk-body">
+            {!extractState.content && chunkState.status === 'idle' && (
+              <div className="chunk-idle-hint">
+                <span>Extract webpage content first to generate chunk segments.</span>
+              </div>
+            )}
+
+            {extractState.content && chunkState.status === 'idle' && (
+              <div className="chunk-ready-hint">
+                <span>
+                  Extracted content ready ({extractState.content.textContent.length.toLocaleString()} chars).
+                  Click &ldquo;Chunk Content&rdquo; to create sequential chunks.
+                </span>
+              </div>
+            )}
+
+            {chunkState.status === 'chunking' && (
+              <div className="chunk-loading-box">
+                <span className="loading-spinner" aria-hidden="true" />
+                <span className="loading-text">Chunking text by paragraph and size boundaries…</span>
+              </div>
+            )}
+
+            {chunkState.status === 'error' && chunkState.errorMessage && (
+              <div className="error-box" role="alert">
+                <span className="error-text">{chunkState.errorMessage}</span>
+                {chunkState.chunkedAt && (
+                  <div className="comm-timestamp">
+                    <span>Attempted at: {chunkState.chunkedAt}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {chunkState.status === 'success' && chunkState.chunkedDoc && (
+              <div className="chunk-result-box">
+                {/* Chunk Summary Header */}
+                <div className="chunk-summary-header">
+                  <div className="chunk-pills">
+                    <span className="meta-pill">
+                      <strong>Total Chunks:</strong> {chunkState.chunkedDoc.totalChunks}
+                    </span>
+                    <span className="meta-pill">
+                      <strong>Chunked Chars:</strong> {chunkState.chunkedDoc.totalCharacters.toLocaleString()}
+                    </span>
+                    <span className="meta-pill">
+                      <strong>Target:</strong> ~1,000 chars
+                    </span>
+                    <span className="meta-pill">
+                      <strong>Max:</strong> 1,500 chars
+                    </span>
+                  </div>
+                </div>
+
+                {/* Chunk Preview List (first 5 chunks previewed to prevent heavy DOM rendering) */}
+                <div className="chunk-list" aria-label="Chunk previews">
+                  {chunkState.chunkedDoc.chunks.slice(0, 5).map((chunk) => (
+                    <article key={chunk.id} className="chunk-item">
+                      <div className="chunk-item-header">
+                        <span className="chunk-item-badge">Chunk #{chunk.index + 1}</span>
+                        <span className="chunk-item-len">{chunk.characterCount.toLocaleString()} chars</span>
+                      </div>
+
+                      {chunk.headingContext && (
+                        <div className="chunk-item-section">
+                          <span className="section-label">Section:</span>{' '}
+                          <span className="section-title">{chunk.headingContext}</span>
+                        </div>
+                      )}
+
+                      <div className="chunk-item-text" tabIndex={0} aria-label={`Chunk ${chunk.index + 1} text`}>
+                        <p className="chunk-text-content">{chunk.text}</p>
+                      </div>
+                    </article>
+                  ))}
+
+                  {chunkState.chunkedDoc.totalChunks > 5 && (
+                    <div className="chunk-overflow-notice">
+                      Showing first 5 of {chunkState.chunkedDoc.totalChunks} chunks in preview. All chunks are structured in memory.
+                    </div>
+                  )}
+                </div>
+
+                {chunkState.chunkedAt && (
+                  <div className="comm-timestamp">
+                    <span>Chunked at: {chunkState.chunkedAt}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -103,7 +103,7 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 | **Milestone 1** | **Chrome Extension Setup:** MV3 manifest, side panel integration, Vite build, React+TS scaffold, dark UI | **Completed** (Verified in Chrome) |
 | **Milestone 2** | **Extension Communication:** Typed message passing between sidebar, background worker, and active tab content script | **Completed** (Implemented and manually verified in Chrome) |
 | **Milestone 3** | **Content Extraction:** Extract clean readability text, title, URL, and timestamp via Mozilla Readability | **Completed** (Verified in Chrome) |
-| **Milestone 4** | **Chunking & Metadata:** Heading-aware content segmentation with source tracking | Pending |
+| **Milestone 4** | **Chunking & Metadata:** Heading-aware content segmentation with source tracking | **Completed** (Verified in Chrome) |
 | **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | Pending |
 | **Milestone 6** | **Local Keyword Search:** Fast client-side lexical search over stored passages | Pending |
 | **Milestone 7** | **Phase 1 Validation:** End-to-end extraction, storage, and offline search verification | Pending |

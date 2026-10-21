@@ -30,6 +30,26 @@ export interface ExtractedContent {
   originalLength: number
 }
 
+export interface ContentChunk {
+  id: string
+  index: number // 0-based sequence index
+  text: string
+  characterCount: number
+  headingContext: string | null
+  documentTitle: string
+  sourceUrl: string
+  extractedAt: number
+}
+
+export interface ChunkedDocument {
+  sourceUrl: string
+  title: string
+  totalChunks: number
+  totalCharacters: number
+  extractedAt: number
+  chunks: ContentChunk[]
+}
+
 // 2. Request Messages
 export interface PingMessage {
   type: 'PING'
