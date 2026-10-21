@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  CachedChunk,
+  CachedDocument,
+  CachedDocumentSummary,
   ChunkedDocument,
   ExtractedContent,
   ExtractPageContentResponse,
@@ -10,6 +13,14 @@ import type {
   TabInfo,
 } from './types/messaging'
 import { chunkContent } from './utils/chunkContent'
+import {
+  checkDocumentCacheStatus,
+  clearAllCache,
+  deleteDocument,
+  getDocumentWithChunks,
+  listCachedDocuments,
+  saveDocumentAndChunks,
+} from './utils/storage'
 import './App.css'
 
 interface ConnectionState {
@@ -35,6 +46,20 @@ interface ChunkingState {
   chunkedAt?: string
 }
 
+interface StorageState {
+  status: 'idle' | 'saving' | 'saved' | 'loading' | 'error'
+  isCurrentPageCached: boolean
+  currentDocSummary?: CachedDocumentSummary
+  cachedList: CachedDocumentSummary[]
+  selectedDoc?: {
+    document: CachedDocument
+    chunks: CachedChunk[]
+  }
+  storageEstimate?: string
+  errorMessage?: string
+  lastActionAt?: string
+}
+
 export default function App() {
   const [connState, setConnState] = useState<ConnectionState>({
     status: 'idle',
@@ -48,6 +73,50 @@ export default function App() {
   const [chunkState, setChunkState] = useState<ChunkingState>({
     status: 'idle',
   })
+
+  const [storageState, setStorageState] = useState<StorageState>({
+    status: 'idle',
+    isCurrentPageCached: false,
+    cachedList: [],
+  })
+
+  // Refreshes the list of cached documents and storage quota
+  const refreshStorageData = useCallback(async (currentUrl?: string) => {
+    try {
+      const list = await listCachedDocuments()
+      let isCached = false
+      let summary: CachedDocumentSummary | undefined
+
+      if (currentUrl) {
+        const check = await checkDocumentCacheStatus(currentUrl)
+        isCached = check.isCached
+        summary = check.documentSummary
+      }
+
+      let storageEstimateText: string | undefined
+      if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate()
+          if (typeof estimate.usage === 'number') {
+            const kb = (estimate.usage / 1024).toFixed(1)
+            storageEstimateText = `~${kb} KB used`
+          }
+        } catch {
+          // Gracefully omit storage estimate if unsupported or restricted
+        }
+      }
+
+      setStorageState((prev) => ({
+        ...prev,
+        cachedList: list,
+        isCurrentPageCached: isCached,
+        currentDocSummary: summary,
+        storageEstimate: storageEstimateText,
+      }))
+    } catch (err) {
+      console.warn('[LagZero Storage] Failed to refresh cached list:', err)
+    }
+  }, [])
 
   const testConnection = useCallback(async () => {
     // Retain previous activeTab during checking so UI does not flicker or blank out
@@ -153,6 +222,11 @@ export default function App() {
         pageInfo: pageInfoResponse.data,
         lastTestedAt: new Date().toLocaleTimeString(),
       })
+
+      // Check cache status for active tab
+      if (activeTab.url) {
+        void refreshStorageData(activeTab.url)
+      }
     } catch (err) {
       setConnState({
         status: 'error',
@@ -161,7 +235,7 @@ export default function App() {
         lastTestedAt: new Date().toLocaleTimeString(),
       })
     }
-  }, [])
+  }, [refreshStorageData])
 
   const extractContent = useCallback(async () => {
     setExtractState({
@@ -275,13 +349,133 @@ export default function App() {
     }
   }, [extractState.content])
 
-  // Auto-check connection upon sidebar load
+  // Save to IndexedDB Cache
+  const handleSaveToCache = useCallback(async () => {
+    if (!extractState.content || !chunkState.chunkedDoc) {
+      setStorageState((prev) => ({
+        ...prev,
+        status: 'error',
+        errorMessage: 'Both webpage content extraction and chunking are required before saving to local cache.',
+      }))
+      return
+    }
+
+    setStorageState((prev) => ({
+      ...prev,
+      status: 'saving',
+      errorMessage: undefined,
+    }))
+
+    try {
+      const savedDoc = await saveDocumentAndChunks(extractState.content, chunkState.chunkedDoc)
+      await refreshStorageData(extractState.content.url)
+      setStorageState((prev) => ({
+        ...prev,
+        status: 'saved',
+        isCurrentPageCached: true,
+        lastActionAt: new Date(savedDoc.updatedAt).toLocaleTimeString(),
+      }))
+    } catch (err) {
+      setStorageState((prev) => ({
+        ...prev,
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : 'Failed to save document to IndexedDB.',
+        lastActionAt: new Date().toLocaleTimeString(),
+      }))
+    }
+  }, [extractState.content, chunkState.chunkedDoc, refreshStorageData])
+
+  // View Cached Document Details
+  const handleSelectCachedDoc = useCallback(async (docIdOrUrl: string) => {
+    setStorageState((prev) => ({
+      ...prev,
+      status: 'loading',
+      errorMessage: undefined,
+    }))
+
+    try {
+      const result = await getDocumentWithChunks(docIdOrUrl)
+      if (!result) {
+        setStorageState((prev) => ({
+          ...prev,
+          status: 'error',
+          errorMessage: 'Selected cached document was not found.',
+        }))
+        return
+      }
+
+      setStorageState((prev) => ({
+        ...prev,
+        status: 'idle',
+        selectedDoc: result,
+      }))
+    } catch (err) {
+      setStorageState((prev) => ({
+        ...prev,
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : 'Failed to retrieve cached document.',
+      }))
+    }
+  }, [])
+
+  // Delete Individual Cached Document
+  const handleDeleteCachedDoc = useCallback(
+    async (docIdOrUrl: string, e?: React.MouseEvent) => {
+      if (e) e.stopPropagation()
+
+      try {
+        await deleteDocument(docIdOrUrl)
+        if (storageState.selectedDoc?.document.id === docIdOrUrl) {
+          setStorageState((prev) => ({ ...prev, selectedDoc: undefined }))
+        }
+        await refreshStorageData(connState.activeTab?.url)
+      } catch (err) {
+        setStorageState((prev) => ({
+          ...prev,
+          status: 'error',
+          errorMessage: err instanceof Error ? err.message : 'Failed to delete cached document.',
+        }))
+      }
+    },
+    [storageState.selectedDoc?.document.id, refreshStorageData, connState.activeTab?.url]
+  )
+
+  // Clear Entire Cache with Confirmation
+  const handleClearCache = useCallback(async () => {
+    const confirmClear = window.confirm(
+      'Are you sure you want to clear all locally cached documents and chunks? This cannot be undone.'
+    )
+    if (!confirmClear) return
+
+    try {
+      await clearAllCache()
+      setStorageState((prev) => ({
+        ...prev,
+        isCurrentPageCached: false,
+        currentDocSummary: undefined,
+        selectedDoc: undefined,
+        cachedList: [],
+        status: 'idle',
+        lastActionAt: new Date().toLocaleTimeString(),
+      }))
+      await refreshStorageData(connState.activeTab?.url)
+    } catch (err) {
+      setStorageState((prev) => ({
+        ...prev,
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : 'Failed to clear local cache.',
+      }))
+    }
+  }, [refreshStorageData, connState.activeTab?.url])
+
+  // Auto-load storage list and check connection on side panel mount
   useEffect(() => {
+    void refreshStorageData()
     const timer = setTimeout(() => {
       void testConnection()
     }, 0)
     return () => clearTimeout(timer)
-  }, [testConnection])
+  }, [testConnection, refreshStorageData])
 
   return (
     <div className="sidebar-container">
@@ -649,6 +843,206 @@ export default function App() {
                     <span>Chunked at: {chunkState.chunkedAt}</span>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Milestone 5 Local Content Cache Card */}
+        <section className="cache-card" aria-label="Local Content Cache">
+          <div className="cache-card-header">
+            <div>
+              <span className="cache-card-title">Local Content Cache</span>
+              <span className="cache-card-sub">Native IndexedDB persistence</span>
+            </div>
+            <button
+              type="button"
+              className="cache-btn primary"
+              onClick={handleSaveToCache}
+              disabled={!extractState.content || !chunkState.chunkedDoc || storageState.status === 'saving'}
+            >
+              {storageState.status === 'saving'
+                ? 'Saving…'
+                : storageState.isCurrentPageCached
+                ? 'Update in Cache'
+                : 'Save to Local Cache'}
+            </button>
+          </div>
+
+          <div className="cache-body">
+            {/* Cache Status Bar */}
+            <div className="cache-status-bar">
+              <div className="cache-status-badges">
+                <span className={`status-pill ${storageState.isCurrentPageCached ? 'cached' : 'not-cached'}`}>
+                  {storageState.isCurrentPageCached ? 'Current Page: Cached' : 'Current Page: Not Cached'}
+                </span>
+                <span className="meta-pill">
+                  <strong>Saved Docs:</strong> {storageState.cachedList.length}
+                </span>
+                {storageState.storageEstimate && (
+                  <span className="meta-pill">
+                    <strong>Storage:</strong> {storageState.storageEstimate}
+                  </span>
+                )}
+              </div>
+              {storageState.cachedList.length > 0 && (
+                <button
+                  type="button"
+                  className="cache-clear-btn"
+                  onClick={handleClearCache}
+                  title="Clear all cached documents and chunks"
+                >
+                  Clear Cache
+                </button>
+              )}
+            </div>
+
+            {/* Save disabled hint */}
+            {(!extractState.content || !chunkState.chunkedDoc) && (
+              <div className="cache-hint-box">
+                <span>
+                  {!extractState.content
+                    ? 'Extract and chunk webpage content to enable local caching.'
+                    : 'Chunk extracted content to enable local caching.'}
+                </span>
+              </div>
+            )}
+
+            {/* Storage Operation Status or Error */}
+            {storageState.status === 'error' && storageState.errorMessage && (
+              <div className="error-box" role="alert">
+                <span className="error-text">{storageState.errorMessage}</span>
+                {storageState.lastActionAt && (
+                  <div className="comm-timestamp">
+                    <span>At: {storageState.lastActionAt}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {storageState.status === 'saved' && (
+              <div className="cache-success-box" role="status">
+                <span className="success-text">Document and chunks successfully stored in IndexedDB.</span>
+                {storageState.lastActionAt && (
+                  <div className="comm-timestamp">
+                    <span>Saved at: {storageState.lastActionAt}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Cached Documents List */}
+            <div className="cached-docs-section">
+              <span className="section-subtitle">Saved Documents</span>
+              {storageState.cachedList.length === 0 ? (
+                <div className="cache-empty-box">
+                  <span>No documents saved in local cache yet.</span>
+                </div>
+              ) : (
+                <div className="cached-docs-list" aria-label="Saved documents list">
+                  {storageState.cachedList.map((doc) => {
+                    const isSelected = storageState.selectedDoc?.document.id === doc.id
+                    return (
+                      <div
+                        key={doc.id}
+                        className={`cached-doc-item ${isSelected ? 'selected' : ''}`}
+                        onClick={() => handleSelectCachedDoc(doc.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            handleSelectCachedDoc(doc.id)
+                          }
+                        }}
+                        aria-label={`Select cached document ${doc.title}`}
+                      >
+                        <div className="cached-doc-info">
+                          <div className="cached-doc-title-row">
+                            <span className="cached-doc-title" title={doc.title}>
+                              {doc.title || 'Untitled Document'}
+                            </span>
+                            <button
+                              type="button"
+                              className="cached-doc-delete-btn"
+                              onClick={(e) => handleDeleteCachedDoc(doc.id, e)}
+                              title="Delete from cache"
+                              aria-label={`Delete ${doc.title} from cache`}
+                            >
+                              &times;
+                            </button>
+                          </div>
+                          <div className="cached-doc-meta-row">
+                            <span className="cached-doc-meta">{doc.totalChunks} chunks</span>
+                            <span className="cached-doc-meta">&bull;</span>
+                            <span className="cached-doc-meta">{doc.totalCharacters.toLocaleString()} chars</span>
+                            <span className="cached-doc-meta">&bull;</span>
+                            <span className="cached-doc-meta">
+                              {new Date(doc.updatedAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div className="cached-doc-url" title={doc.sourceUrl}>
+                            {doc.sourceUrl}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Selected Cached Document Detail View */}
+            {storageState.selectedDoc && (
+              <div className="selected-cache-detail" aria-label="Selected cached document detail">
+                <div className="selected-cache-header">
+                  <div className="selected-cache-title-wrap">
+                    <span className="selected-cache-badge">Retrieved From Local Cache (Offline)</span>
+                    <h3 className="selected-cache-title">{storageState.selectedDoc.document.title}</h3>
+                    <div className="selected-cache-url">{storageState.selectedDoc.document.sourceUrl}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="selected-cache-close-btn"
+                    onClick={() => setStorageState((prev) => ({ ...prev, selectedDoc: undefined }))}
+                    title="Close detail view"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className="selected-cache-stats">
+                  <span className="meta-pill">
+                    <strong>Chunks:</strong> {storageState.selectedDoc.document.totalChunks}
+                  </span>
+                  <span className="meta-pill">
+                    <strong>Characters:</strong> {storageState.selectedDoc.document.totalCharacters.toLocaleString()}
+                  </span>
+                  <span className="meta-pill">
+                    <strong>Saved:</strong> {new Date(storageState.selectedDoc.document.updatedAt).toLocaleTimeString()}
+                  </span>
+                </div>
+
+                {/* Chunks in ascending order */}
+                <div className="selected-cache-chunks" aria-label="Cached chunks ordered">
+                  <span className="chunks-list-heading">Stored Chunks (Ordered)</span>
+                  {storageState.selectedDoc.chunks.map((chunk) => (
+                    <article key={chunk.id} className="chunk-item cached-chunk-item">
+                      <div className="chunk-item-header">
+                        <span className="chunk-item-badge">Chunk #{chunk.chunkIndex + 1}</span>
+                        <span className="chunk-item-len">{chunk.characterCount.toLocaleString()} chars</span>
+                      </div>
+                      {chunk.headingContext && (
+                        <div className="chunk-item-section">
+                          <span className="section-label">Section:</span>{' '}
+                          <span className="section-title">{chunk.headingContext}</span>
+                        </div>
+                      )}
+                      <div className="chunk-item-text" tabIndex={0}>
+                        <p className="chunk-text-content">{chunk.text}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
               </div>
             )}
           </div>

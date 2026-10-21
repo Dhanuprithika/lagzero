@@ -81,12 +81,14 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 - **Content Script:** Content script (`src/content.ts`) with Mozilla Readability (`@mozilla/readability`) for clean article extraction.
 - **Typed Messaging Contract:** Discriminated union message protocol (`src/types/messaging.ts`) supporting reachability (`PING`), tab querying (`GET_ACTIVE_TAB`), metadata (`GET_PAGE_INFO`), and content extraction (`EXTRACT_PAGE_CONTENT`).
 - **Webpage Content Extraction:** Mozilla Readability (`@mozilla/readability`) parser executed safely on cloned document nodes.
+- **Paragraph-Aware Chunking:** Deterministic text chunking engine (`src/utils/chunkContent.ts`) with soft ~1,000 char target and hard 1,500 char max, preserving heading contexts and reading order.
+- **Local IndexedDB Persistence:** Native IndexedDB storage layer (`src/utils/storage.ts`) storing normalized documents and sequential chunks with atomic transactional updates, stale chunk purges, individual deletion, and full cache clear.
 - **Frontend Framework:** React 19 + TypeScript.
 - **Build Tool:** Vite 8 configured for multi-entry extension packaging (`base: './'`).
 - **Styling:** Custom dark developer theme adhering to strict palette (`#0D0D0D`, `#2563EB`, `#FFFFFF`).
 
 ### Planned Stack (In Progress / Future Phases)
-- **Local Storage:** IndexedDB *(Phase 1, planned)*
+- **Local Keyword Search:** Fast client-side lexical search over stored passages *(Phase 1, Milestone 6, planned)*
 - **Local Embeddings & Vector Search:** In-browser embeddings / vector indexing *(Phase 2, planned)*
 - **Local Inference:** WebGPU / WebLLM *(Phase 2, planned)*
 - **Cloud Fallback:** External LLM provider with privacy boundaries *(Phase 2, planned)*
@@ -104,7 +106,7 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 | **Milestone 2** | **Extension Communication:** Typed message passing between sidebar, background worker, and active tab content script | **Completed** (Implemented and manually verified in Chrome) |
 | **Milestone 3** | **Content Extraction:** Extract clean readability text, title, URL, and timestamp via Mozilla Readability | **Completed** (Verified in Chrome) |
 | **Milestone 4** | **Chunking & Metadata:** Heading-aware content segmentation with source tracking | **Completed** (Verified in Chrome) |
-| **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | Pending |
+| **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | **Implemented** (Build/lint/tests verified; manual Chrome verification pending) |
 | **Milestone 6** | **Local Keyword Search:** Fast client-side lexical search over stored passages | Pending |
 | **Milestone 7** | **Phase 1 Validation:** End-to-end extraction, storage, and offline search verification | Pending |
 
@@ -125,6 +127,61 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 - Cache management, storage quota policies, and selective invalidation.
 - Comprehensive benchmarking: cache-hit latency, avoided requests, answer accuracy, and local vs. cloud response times.
 - Security and privacy auditing (credential scrubbing, API key encryption).
+
+---
+
+## IndexedDB Storage Architecture (Milestone 5)
+
+LagZero uses browser-native **IndexedDB** (`lagzero_local_db`, schema version 1) to persistently store extracted documents and chunks directly on the user's machine without any backend, cloud database, or remote network calls.
+
+### Schema & Object Stores
+
+1. **`documents` Object Store:**
+   - **Primary Key:** `id` (normalized URL string).
+   - **Indexes:**
+     - `by_updatedAt`: For sorting documents by most recent update.
+     - `by_sourceUrl`: For looking up documents by original URL.
+   - **Stored Fields:**
+     - `id`: Normalized canonical URL.
+     - `title`: Extracted page title.
+     - `sourceUrl`: Original webpage URL before normalization.
+     - `extractedText`: Complete cleaned text from Mozilla Readability.
+     - `excerpt`, `byline`, `siteName`, `publishedTime`: Metadata from extraction.
+     - `extractedAt`: Extraction timestamp.
+     - `cachedAt`: Initial cache creation timestamp.
+     - `updatedAt`: Last update timestamp.
+     - `totalChunks`: Total stored chunk count.
+     - `totalCharacters`: Total stored character count.
+     - `schemaVersion`: Version tracker (currently `1`).
+
+2. **`chunks` Object Store:**
+   - **Primary Key:** `id` (composite key: `${documentId}::${chunkIndex}`).
+   - **Indexes:**
+     - `by_documentId`: For atomic batch lookups and bulk deletions by parent document.
+     - `by_doc_chunk_order`: Compound index `[documentId, chunkIndex]` for reading-order retrieval.
+   - **Stored Fields:**
+     - `id`: Unique composite chunk identifier.
+     - `documentId`: Foreign key reference to parent `CachedDocument.id`.
+     - `chunkIndex`: Zero-based sequential chunk index.
+     - `text`: Chunk text content.
+     - `characterCount`: Number of characters in the chunk.
+     - `headingContext`: Current section/heading context when available.
+     - `documentTitle`: Document title.
+     - `sourceUrl`: Source URL.
+     - `extractedAt`: Extraction timestamp.
+
+### URL Normalization Policy
+- **Fragments (`#section`)**: Stripped because intra-page anchors refer to the same document.
+- **Host / Protocol**: Lowercased and default ports (`:80`, `:443`) removed.
+- **Trailing Slashes**: Stripped for path consistency.
+- **Query Parameters**: **Preserved**, because query parameters (e.g., `?id=123`, `?v=...`) frequently differentiate genuinely distinct documents or articles.
+
+### Atomic Consistency & Stale Chunk Removal
+When saving or updating a document:
+- An atomic `readwrite` transaction opens over both `documents` and `chunks` stores.
+- All existing chunks for the target document are deleted via a cursor over `by_documentId` before writing new chunks.
+- If re-saving a document produces fewer chunks than before, no orphaned or stale chunks remain.
+- If any write fails, the entire transaction aborts, preventing partial or inconsistent states.
 
 ---
 
@@ -154,9 +211,18 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
    ```
    The self-contained extension output will be emitted to the `dist/` directory.
 
-4. (Optional) Run the linter:
+4. Run the linter:
    ```bash
    npm run lint
+   ```
+
+5. Run the automated test suites:
+   ```bash
+   # Test chunking engine
+   npx tsx test-chunking.ts
+
+   # Test IndexedDB storage layer
+   npx tsx test-storage.ts
    ```
 
 ### Loading the Extension in Google Chrome
@@ -171,13 +237,37 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 5. Click the **Extensions** puzzle icon in the Chrome toolbar and pin **LagZero**.
 6. Click the LagZero toolbar icon to open the native Side Panel.
 
+### Manual Verification Steps in Chrome (Milestone 5)
+
+1. Open any article webpage (e.g., `https://en.wikipedia.org/wiki/Artificial_intelligence`).
+2. In the LagZero side panel, click **Test Connection** to confirm connectivity with the active tab.
+3. Click **Extract Page Content** to extract article text.
+4. Click **Chunk Content** to segment the text into ordered chunks.
+5. In the **Local Content Cache** card, verify the **Save to Local Cache** button is enabled. Click it.
+6. Verify:
+   - Success confirmation is displayed (`Document and chunks successfully stored in IndexedDB`).
+   - The badge updates to `Current Page: Cached`.
+   - The article appears in the **Saved Documents** list showing title, chunk count, and character count.
+7. Click the saved document in the list:
+   - Verify the detail view opens showing `Retrieved From Local Cache (Offline)`.
+   - Verify all stored chunks render in sequential order (`Chunk #1`, `Chunk #2`, etc.).
+8. Reopen or refresh the extension:
+   - Close the side panel and reopen it, or refresh the extension at `chrome://extensions`.
+   - Reopen the side panel: verify the saved document list still contains the saved article and can be viewed.
+9. Verify Offline Retrieval:
+   - Disconnect your machine from Wi-Fi / network.
+   - Click the saved document in the list: verify all document content and chunks load immediately without errors or network activity.
+10. Verify Deletion & Clear:
+    - Click `×` next to a document to test individual deletion.
+    - Click **Clear Cache** and confirm prompt to verify full cache purging.
+
 ---
 
 ## Known Limitations
 
-- **Scaffold Stage:** Currently at Phase 1, Milestone 1. The extension loads and renders the sidebar interface, but does not yet extract page contents or execute search queries.
-- **No Working AI Yet:** The sidebar input is intentionally marked as `Phase 1 development in progress`. Fake chat responses, mock completions, and non-functional search results are strictly avoided.
-- **Manual Extension Reload:** When modifying code, rerun `npm run build` and click the reload icon on `chrome://extensions` to update the extension in Chrome.
+- **Text & Chunks Only:** Caching preserves the extracted clean text, structure, chunks, and metadata. It does **not** cache original full HTML, stylesheets, images, videos, or scripts.
+- **Search Not Yet Implemented:** Client-side lexical keyword search over cached passages is scheduled for Milestone 6.
+- **No AI Inference Yet:** On-device local AI inference (WebLLM/WebGPU) and cloud fallback are scheduled for Phase 2.
 
 ---
 

@@ -50,6 +50,46 @@ export interface ChunkedDocument {
   chunks: ContentChunk[]
 }
 
+// Milestone 5: Persistent Storage Models (IndexedDB)
+export interface CachedDocument {
+  id: string // Normalized URL as stable primary key
+  title: string
+  sourceUrl: string // Original URL
+  extractedText: string
+  excerpt: string | null
+  byline: string | null
+  siteName: string | null
+  publishedTime: string | null
+  extractedAt: number
+  cachedAt: number
+  updatedAt: number
+  totalChunks: number
+  totalCharacters: number
+  schemaVersion: number
+}
+
+export interface CachedChunk {
+  id: string // Composite key: `${documentId}::${chunkIndex}`
+  documentId: string
+  chunkIndex: number
+  text: string
+  characterCount: number
+  headingContext: string | null
+  documentTitle: string
+  sourceUrl: string
+  extractedAt: number
+}
+
+export interface CachedDocumentSummary {
+  id: string
+  title: string
+  sourceUrl: string
+  cachedAt: number
+  updatedAt: number
+  totalChunks: number
+  totalCharacters: number
+}
+
 // 2. Request Messages
 export interface PingMessage {
   type: 'PING'
