@@ -375,3 +375,54 @@ export async function checkDocumentCacheStatus(
     }
   })
 }
+
+/**
+ * Retrieves all currently cached documents and all their chunks in a single readonly transaction.
+ * Used for local search across the entire stored cache.
+ * Returns only chunks whose parent document exists.
+ */
+export async function getAllCachedDocumentsAndChunks(
+  dbInstance?: IDBDatabase
+): Promise<{ documents: Map<string, CachedDocument>; chunks: CachedChunk[] }> {
+  const db = dbInstance ?? (await openLagZeroDB())
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_DOCUMENTS, STORE_CHUNKS], 'readonly')
+    const docStore = tx.objectStore(STORE_DOCUMENTS)
+    const chunkStore = tx.objectStore(STORE_CHUNKS)
+
+    const documents = new Map<string, CachedDocument>()
+    const chunks: CachedChunk[] = []
+
+    tx.onerror = () => {
+      reject(new Error(`Failed to read stored content: ${tx.error?.message || 'Storage error'}`))
+    }
+
+    // 1. Fetch all documents
+    const docReq = docStore.openCursor()
+    docReq.onsuccess = (e) => {
+      const cursor = (e.target as IDBRequest<IDBCursorWithValue | null>).result
+      if (cursor) {
+        const doc = cursor.value as CachedDocument
+        documents.set(doc.id, doc)
+        cursor.continue()
+      }
+    }
+
+    // 2. Fetch all chunks
+    const chunkReq = chunkStore.openCursor()
+    chunkReq.onsuccess = (e) => {
+      const cursor = (e.target as IDBRequest<IDBCursorWithValue | null>).result
+      if (cursor) {
+        chunks.push(cursor.value as CachedChunk)
+        cursor.continue()
+      }
+    }
+
+    tx.oncomplete = () => {
+      // Filter out any orphaned chunks whose parent document does not exist
+      const validChunks = chunks.filter((c) => documents.has(c.documentId))
+      resolve({ documents, chunks: validChunks })
+    }
+  })
+}

@@ -90,6 +90,29 @@ export interface CachedDocumentSummary {
   totalCharacters: number
 }
 
+// Milestone 6: Local Keyword Search Models
+export interface SearchResult {
+  documentId: string
+  documentTitle: string
+  sourceUrl: string
+  chunkId: string
+  chunkIndex: number
+  passageText: string
+  characterCount: number
+  relevanceScore: number
+  matchedTerms: string[]
+  headingContext: string | null
+  cachedAt?: number
+  updatedAt?: number
+  exactPhraseMatch: boolean
+  titleMatch: boolean
+}
+
+export interface SearchOptions {
+  limit?: number
+  dbInstance?: IDBDatabase
+}
+
 // 2. Request Messages
 export interface PingMessage {
   type: 'PING'

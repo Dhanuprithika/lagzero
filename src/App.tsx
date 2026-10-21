@@ -10,9 +10,11 @@ import type {
   GetPageInfoResponse,
   PageMetadata,
   PingResponse,
+  SearchResult,
   TabInfo,
 } from './types/messaging'
 import { chunkContent } from './utils/chunkContent'
+import { searchCachedContent } from './utils/search'
 import {
   checkDocumentCacheStatus,
   clearAllCache,
@@ -22,6 +24,39 @@ import {
   saveDocumentAndChunks,
 } from './utils/storage'
 import './App.css'
+
+/**
+ * Safely renders text with matched search terms highlighted, without raw HTML injection.
+ */
+function renderHighlightedText(text: string, matchedTerms: string[]) {
+  if (!matchedTerms.length || !text) {
+    return text
+  }
+
+  // Escape special regex characters in terms
+  const escapedTerms = matchedTerms
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+
+  if (!escapedTerms.length) {
+    return text
+  }
+
+  const regex = new RegExp(`(${escapedTerms.join('|')})`, 'gi')
+  const parts = text.split(regex)
+
+  return parts.map((part, i) => {
+    const isMatch = escapedTerms.some((t) => new RegExp(`^${t}$`, 'i').test(part))
+    return isMatch ? (
+      <mark key={i} className="search-highlight">
+        {part}
+      </mark>
+    ) : (
+      part
+    )
+  })
+}
 
 interface ConnectionState {
   status: 'idle' | 'checking' | 'connected' | 'error'
@@ -60,6 +95,14 @@ interface StorageState {
   lastActionAt?: string
 }
 
+interface SearchState {
+  query: string
+  status: 'idle' | 'searching' | 'success' | 'error'
+  results: SearchResult[]
+  hasSearched: boolean
+  errorMessage?: string
+}
+
 export default function App() {
   const [connState, setConnState] = useState<ConnectionState>({
     status: 'idle',
@@ -78,6 +121,13 @@ export default function App() {
     status: 'idle',
     isCurrentPageCached: false,
     cachedList: [],
+  })
+
+  const [searchState, setSearchState] = useState<SearchState>({
+    query: '',
+    status: 'idle',
+    results: [],
+    hasSearched: false,
   })
 
   // Refreshes the list of cached documents and storage quota
@@ -467,6 +517,54 @@ export default function App() {
       }))
     }
   }, [refreshStorageData, connState.activeTab?.url])
+
+  // Milestone 6 Local Keyword Search Handler
+  const handleSearch = useCallback(async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    const query = searchState.query.trim()
+    if (!query) {
+      setSearchState((prev) => ({
+        ...prev,
+        status: 'idle',
+        results: [],
+        hasSearched: false,
+        errorMessage: undefined,
+      }))
+      return
+    }
+
+    setSearchState((prev) => ({
+      ...prev,
+      status: 'searching',
+      errorMessage: undefined,
+    }))
+
+    try {
+      const results = await searchCachedContent(query)
+      setSearchState((prev) => ({
+        ...prev,
+        status: 'success',
+        results,
+        hasSearched: true,
+      }))
+    } catch (err) {
+      setSearchState((prev) => ({
+        ...prev,
+        status: 'error',
+        errorMessage: err instanceof Error ? err.message : 'Search failed.',
+        hasSearched: true,
+      }))
+    }
+  }, [searchState.query])
+
+  const handleClearSearch = useCallback(() => {
+    setSearchState({
+      query: '',
+      status: 'idle',
+      results: [],
+      hasSearched: false,
+    })
+  }, [])
 
   // Auto-load storage list and check connection on side panel mount
   useEffect(() => {
@@ -1043,6 +1141,160 @@ export default function App() {
                     </article>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Milestone 6 Local Keyword Search Card */}
+        <section className="search-card" aria-label="Local Keyword Search">
+          <div className="search-card-header">
+            <div>
+              <span className="search-card-title">Local Keyword Search</span>
+              <span className="search-card-sub">Client-side offline retrieval</span>
+            </div>
+            {storageState.cachedList.length > 0 && (
+              <span className="meta-pill">
+                <strong>Indexed:</strong> {storageState.cachedList.length} doc{storageState.cachedList.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+
+          <div className="search-body">
+            {/* Search Input Form */}
+            <form className="search-form" onSubmit={handleSearch}>
+              <div className="search-input-wrapper">
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="Search your saved content…"
+                  value={searchState.query}
+                  onChange={(e) => setSearchState((prev) => ({ ...prev, query: e.target.value }))}
+                  aria-label="Search query"
+                  disabled={searchState.status === 'searching'}
+                />
+                {searchState.query && (
+                  <button
+                    type="button"
+                    className="search-clear-input-btn"
+                    onClick={handleClearSearch}
+                    title="Clear search"
+                    aria-label="Clear search input"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+              <button
+                type="submit"
+                className="search-btn primary"
+                disabled={!searchState.query.trim() || searchState.status === 'searching'}
+              >
+                {searchState.status === 'searching' ? 'Searching…' : 'Search'}
+              </button>
+            </form>
+
+            {/* Empty cache state */}
+            {storageState.cachedList.length === 0 && (
+              <div className="search-hint-box">
+                <span>Extract and save webpages to your local cache to enable offline search.</span>
+              </div>
+            )}
+
+            {/* Searching indicator */}
+            {searchState.status === 'searching' && (
+              <div className="search-loading-box">
+                <span className="loading-spinner" aria-hidden="true" />
+                <span className="loading-text">Scanning cached passages in IndexedDB…</span>
+              </div>
+            )}
+
+            {/* Error state */}
+            {searchState.status === 'error' && searchState.errorMessage && (
+              <div className="error-box" role="alert">
+                <span className="error-text">{searchState.errorMessage}</span>
+              </div>
+            )}
+
+            {/* Results count header */}
+            {searchState.hasSearched && searchState.status === 'success' && (
+              <div className="search-results-header">
+                <span className="search-results-count">
+                  {searchState.results.length === 0
+                    ? 'No matching passages found'
+                    : `Found ${searchState.results.length} matching passage${searchState.results.length === 1 ? '' : 's'}`}
+                </span>
+                {searchState.results.length > 0 && (
+                  <button
+                    type="button"
+                    className="search-reset-btn"
+                    onClick={handleClearSearch}
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* No matches hint */}
+            {searchState.hasSearched && searchState.status === 'success' && searchState.results.length === 0 && (
+              <div className="search-empty-box">
+                <span>No cached passages matched &ldquo;{searchState.query}&rdquo;. Try another term.</span>
+              </div>
+            )}
+
+            {/* Ranked Results List */}
+            {searchState.results.length > 0 && (
+              <div className="search-results-list" aria-label="Search results">
+                {searchState.results.map((res) => (
+                  <article
+                    key={res.chunkId}
+                    className="search-result-item"
+                    onClick={() => handleSelectCachedDoc(res.documentId)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        handleSelectCachedDoc(res.documentId)
+                      }
+                    }}
+                    aria-label={`Result from ${res.documentTitle}, chunk ${res.chunkIndex + 1}`}
+                  >
+                    <div className="search-result-top">
+                      <span className="search-result-doc-title" title={res.documentTitle}>
+                        {res.documentTitle}
+                      </span>
+                      <span className="search-result-score-pill">
+                        Score: {res.relevanceScore}
+                      </span>
+                    </div>
+
+                    <div className="search-result-meta-row">
+                      <span className="search-result-chunk-badge">Chunk #{res.chunkIndex + 1}</span>
+                      {res.headingContext && (
+                        <>
+                          <span className="search-result-meta">&bull;</span>
+                          <span className="search-result-heading" title={res.headingContext}>
+                            {res.headingContext}
+                          </span>
+                        </>
+                      )}
+                      {res.exactPhraseMatch && (
+                        <span className="search-match-badge exact">Exact Phrase</span>
+                      )}
+                    </div>
+
+                    <div className="search-result-passage" tabIndex={0}>
+                      <p className="search-passage-text">
+                        {renderHighlightedText(res.passageText, res.matchedTerms)}
+                      </p>
+                    </div>
+
+                    <div className="search-result-url" title={res.sourceUrl}>
+                      {res.sourceUrl}
+                    </div>
+                  </article>
+                ))}
               </div>
             )}
           </div>

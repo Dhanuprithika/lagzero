@@ -83,12 +83,12 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 - **Webpage Content Extraction:** Mozilla Readability (`@mozilla/readability`) parser executed safely on cloned document nodes.
 - **Paragraph-Aware Chunking:** Deterministic text chunking engine (`src/utils/chunkContent.ts`) with soft ~1,000 char target and hard 1,500 char max, preserving heading contexts and reading order.
 - **Local IndexedDB Persistence:** Native IndexedDB storage layer (`src/utils/storage.ts`) storing normalized documents and sequential chunks with atomic transactional updates, stale chunk purges, individual deletion, and full cache clear.
+- **Local Keyword Search Engine:** Client-side lexical ranking engine (`src/utils/search.ts`) with normalized multi-term query tokenization, exact-phrase scoring, title boosting, passage frequency weighting, deterministic tie-breaking, and safe text highlighting.
 - **Frontend Framework:** React 19 + TypeScript.
 - **Build Tool:** Vite 8 configured for multi-entry extension packaging (`base: './'`).
 - **Styling:** Custom dark developer theme adhering to strict palette (`#0D0D0D`, `#2563EB`, `#FFFFFF`).
 
 ### Planned Stack (In Progress / Future Phases)
-- **Local Keyword Search:** Fast client-side lexical search over stored passages *(Phase 1, Milestone 6, planned)*
 - **Local Embeddings & Vector Search:** In-browser embeddings / vector indexing *(Phase 2, planned)*
 - **Local Inference:** WebGPU / WebLLM *(Phase 2, planned)*
 - **Cloud Fallback:** External LLM provider with privacy boundaries *(Phase 2, planned)*
@@ -106,8 +106,8 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 | **Milestone 2** | **Extension Communication:** Typed message passing between sidebar, background worker, and active tab content script | **Completed** (Implemented and manually verified in Chrome) |
 | **Milestone 3** | **Content Extraction:** Extract clean readability text, title, URL, and timestamp via Mozilla Readability | **Completed** (Verified in Chrome) |
 | **Milestone 4** | **Chunking & Metadata:** Heading-aware content segmentation with source tracking | **Completed** (Verified in Chrome) |
-| **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | **Implemented** (Build/lint/tests verified; manual Chrome verification pending) |
-| **Milestone 6** | **Local Keyword Search:** Fast client-side lexical search over stored passages | Pending |
+| **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | **Completed** (Verified in Chrome) |
+| **Milestone 6** | **Local Keyword Search:** Fast client-side lexical search over stored passages | **Implemented** (Build/lint/tests verified; manual Chrome verification pending) |
 | **Milestone 7** | **Phase 1 Validation:** End-to-end extraction, storage, and offline search verification | Pending |
 
 ### Phase 2 — Local RAG + AI (Planned)
@@ -185,6 +185,38 @@ When saving or updating a document:
 
 ---
 
+## Local Keyword Search Architecture (Milestone 6)
+
+LagZero includes a browser-local, deterministic keyword search engine (`src/utils/search.ts`) that executes entirely client-side across all cached documents and chunks saved in IndexedDB.
+
+### Search Flow & Scope
+- **Offline & Private:** Operates strictly on local IndexedDB records. Queries and stored passages are never sent across the network or to remote cloud services.
+- **Cross-Document Scope:** Searches all cached documents, ranking matching passages regardless of which webpage is currently active.
+- **Orphan Prevention:** Chunks whose parent documents have been deleted are automatically excluded.
+- **Safe Highlighting:** Matching terms in passages are highlighted safely without injecting unsafe raw HTML strings.
+
+### Query Normalization
+1. Trims leading and trailing whitespace.
+2. Converts the query string to lowercase.
+3. Splits into terms across whitespace and non-alphanumeric punctuation (hyphens, commas, periods, quotes, etc.).
+4. Filters out empty tokens and deduplicates repeating words while preserving sequence.
+
+### Scoring Formula & Ranking
+Each chunk is scored deterministically based on:
+1. **Exact Phrase Match (+50 pts):** If the complete multi-word query string appears in the chunk text (+25 pts if in heading, +35 pts if in title).
+2. **Title Match (+20 pts per token):** If a query token appears in the document title.
+3. **Heading Context (+10 pts per token):** If a query token appears in the section/heading context.
+4. **Passage Term Matches (+15 pts per token):** For each distinct query token occurring in the chunk text.
+5. **Term Frequency (+3 pts per occurrence, capped at +30 pts):** Rewards multiple term occurrences while preventing keyword stuffing.
+6. **Query Coverage Bonus (+25 pts):** Awarded if all query tokens match the document/chunk.
+
+**Deterministic Tie-Breaking:**
+When two passages have identical relevance scores, ties are broken deterministically:
+1. Document title in alphabetical order (`localeCompare`).
+2. Chunk index in ascending sequential order (`chunkIndex`).
+
+---
+
 ## Getting Started
 
 ### Prerequisites
@@ -223,6 +255,9 @@ When saving or updating a document:
 
    # Test IndexedDB storage layer
    npx tsx test-storage.ts
+
+   # Test local keyword search engine
+   npx tsx test-search.ts
    ```
 
 ### Loading the Extension in Google Chrome
@@ -237,36 +272,35 @@ When saving or updating a document:
 5. Click the **Extensions** puzzle icon in the Chrome toolbar and pin **LagZero**.
 6. Click the LagZero toolbar icon to open the native Side Panel.
 
-### Manual Verification Steps in Chrome (Milestone 5)
+### Manual Verification Steps in Chrome (Milestones 5 & 6)
 
 1. Open any article webpage (e.g., `https://en.wikipedia.org/wiki/Artificial_intelligence`).
-2. In the LagZero side panel, click **Test Connection** to confirm connectivity with the active tab.
-3. Click **Extract Page Content** to extract article text.
-4. Click **Chunk Content** to segment the text into ordered chunks.
-5. In the **Local Content Cache** card, verify the **Save to Local Cache** button is enabled. Click it.
-6. Verify:
-   - Success confirmation is displayed (`Document and chunks successfully stored in IndexedDB`).
-   - The badge updates to `Current Page: Cached`.
-   - The article appears in the **Saved Documents** list showing title, chunk count, and character count.
-7. Click the saved document in the list:
-   - Verify the detail view opens showing `Retrieved From Local Cache (Offline)`.
-   - Verify all stored chunks render in sequential order (`Chunk #1`, `Chunk #2`, etc.).
-8. Reopen or refresh the extension:
-   - Close the side panel and reopen it, or refresh the extension at `chrome://extensions`.
-   - Reopen the side panel: verify the saved document list still contains the saved article and can be viewed.
-9. Verify Offline Retrieval:
-   - Disconnect your machine from Wi-Fi / network.
-   - Click the saved document in the list: verify all document content and chunks load immediately without errors or network activity.
-10. Verify Deletion & Clear:
-    - Click `×` next to a document to test individual deletion.
-    - Click **Clear Cache** and confirm prompt to verify full cache purging.
+2. In the LagZero side panel, click **Test Connection** to confirm connectivity.
+3. Click **Extract Page Content** and then **Chunk Content**.
+4. In the **Local Content Cache** card, click **Save to Local Cache** to persist the document and chunks to IndexedDB.
+5. In the **Local Keyword Search** card:
+   - Type a query matching the saved article (e.g., `artificial intelligence` or `machine learning` or `neural networks`).
+   - Click **Search** (or press Enter).
+   - Verify the search result count and ranked passage list display.
+   - Verify matching query tokens are highlighted in blue.
+   - Verify the document title, chunk index, section heading, and source URL are displayed.
+6. Click on a search result entry:
+   - Verify it opens the cached document detail view showing the full stored content and ordered chunks.
+7. Test Multi-Document Search:
+   - Navigate to a second page (e.g., another article), extract, chunk, and save it.
+   - Run a search query relevant to either page or both (e.g., `computing`).
+   - Verify results from both documents appear ranked according to relevance.
+8. Test Offline Capability:
+   - Disconnect Wi-Fi/network connectivity.
+   - Execute a search query in the search card.
+   - Verify search operates immediately and completely offline without network errors.
 
 ---
 
 ## Known Limitations
 
+- **Lexical Matching Only:** Search uses deterministic lexical and token matching. It does not use vector embeddings, semantic search, or fuzzy phonetic matching.
 - **Text & Chunks Only:** Caching preserves the extracted clean text, structure, chunks, and metadata. It does **not** cache original full HTML, stylesheets, images, videos, or scripts.
-- **Search Not Yet Implemented:** Client-side lexical keyword search over cached passages is scheduled for Milestone 6.
 - **No AI Inference Yet:** On-device local AI inference (WebLLM/WebGPU) and cloud fallback are scheduled for Phase 2.
 
 ---
