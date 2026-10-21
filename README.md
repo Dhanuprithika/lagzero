@@ -107,8 +107,8 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 | **Milestone 3** | **Content Extraction:** Extract clean readability text, title, URL, and timestamp via Mozilla Readability | **Completed** (Verified in Chrome) |
 | **Milestone 4** | **Chunking & Metadata:** Heading-aware content segmentation with source tracking | **Completed** (Verified in Chrome) |
 | **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | **Completed** (Verified in Chrome) |
-| **Milestone 6** | **Local Keyword Search:** Fast client-side lexical search over stored passages | **Implemented** (Build/lint/tests verified; manual Chrome verification pending) |
-| **Milestone 7** | **Phase 1 Validation:** End-to-end extraction, storage, and offline search verification | Pending |
+| **Milestone 6** | **Local Keyword Search:** Fast client-side lexical search over stored passages | **Completed** (Verified in Chrome) |
+| **Milestone 7** | **Phase 1 Validation:** End-to-end extraction, storage, and offline search verification | **Implemented** (Build/lint/tests verified; manual Chrome verification pending) |
 
 ### Phase 2 — Local RAG + AI (Planned)
 *Goal: Integrate local embeddings, on-device semantic search, local LLM inference, and single-provider cloud fallback.*
@@ -258,6 +258,9 @@ When two passages have identical relevance scores, ties are broken deterministic
 
    # Test local keyword search engine
    npx tsx test-search.ts
+
+   # Test complete Phase 1 end-to-end integration
+   npx tsx test-integration.ts
    ```
 
 ### Loading the Extension in Google Chrome

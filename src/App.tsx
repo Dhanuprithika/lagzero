@@ -425,6 +425,15 @@ export default function App() {
         isCurrentPageCached: true,
         lastActionAt: new Date(savedDoc.updatedAt).toLocaleTimeString(),
       }))
+
+      // Automatically refresh active search results if a query is active
+      if (searchState.query.trim()) {
+        const updatedResults = await searchCachedContent(searchState.query.trim())
+        setSearchState((prev) => ({
+          ...prev,
+          results: updatedResults,
+        }))
+      }
     } catch (err) {
       setStorageState((prev) => ({
         ...prev,
@@ -433,7 +442,7 @@ export default function App() {
         lastActionAt: new Date().toLocaleTimeString(),
       }))
     }
-  }, [extractState.content, chunkState.chunkedDoc, refreshStorageData])
+  }, [extractState.content, chunkState.chunkedDoc, refreshStorageData, searchState.query])
 
   // View Cached Document Details
   const handleSelectCachedDoc = useCallback(async (docIdOrUrl: string) => {
@@ -479,6 +488,15 @@ export default function App() {
           setStorageState((prev) => ({ ...prev, selectedDoc: undefined }))
         }
         await refreshStorageData(connState.activeTab?.url)
+
+        // Automatically refresh active search results if a query is active
+        if (searchState.query.trim()) {
+          const updatedResults = await searchCachedContent(searchState.query.trim())
+          setSearchState((prev) => ({
+            ...prev,
+            results: updatedResults,
+          }))
+        }
       } catch (err) {
         setStorageState((prev) => ({
           ...prev,
@@ -487,7 +505,7 @@ export default function App() {
         }))
       }
     },
-    [storageState.selectedDoc?.document.id, refreshStorageData, connState.activeTab?.url]
+    [storageState.selectedDoc?.document.id, refreshStorageData, connState.activeTab?.url, searchState.query]
   )
 
   // Clear Entire Cache with Confirmation
@@ -507,6 +525,12 @@ export default function App() {
         cachedList: [],
         status: 'idle',
         lastActionAt: new Date().toLocaleTimeString(),
+      }))
+      // Clear any active search results immediately
+      setSearchState((prev) => ({
+        ...prev,
+        results: [],
+        hasSearched: false,
       }))
       await refreshStorageData(connState.activeTab?.url)
     } catch (err) {
