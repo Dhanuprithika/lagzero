@@ -656,6 +656,83 @@
   margin-top: 1px;
 }
 
+.save-btn-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.bookmark-save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 4px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.bookmark-save-btn:hover:not(:disabled) {
+  background-color: rgba(37, 99, 235, 0.15);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.bookmark-save-btn:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 1px;
+}
+
+.bookmark-save-btn.cached {
+  color: var(--accent-blue);
+  border-color: rgba(37, 99, 235, 0.4);
+}
+
+.bookmark-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--border-subtle);
+}
+
+.save-icon-spinner {
+  animation: save-spin 0.8s linear infinite;
+}
+
+@keyframes save-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.save-tooltip {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  background-color: #1a1a1a;
+  color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Fallback cache-btn support */
 .cache-btn {
   padding: 6px 12px;
   border-radius: 4px;
@@ -1273,4 +1350,431 @@
   font-size: 11px;
   color: var(--text-muted);
   letter-spacing: 0.01em;
+}
+
+/* ==========================================================================
+   Phase 1.1 Production UI Refinements
+   ========================================================================== */
+
+/* Brand & Tagline */
+.brand-text-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.brand-tagline {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+/* Connection Notification Toast (Auto-dismissing) */
+.connection-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background-color: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-blue);
+  border-radius: 4px;
+  font-size: 11px;
+  animation: fadeIn 0.2s ease;
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.toast-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--accent-blue);
+  flex-shrink: 0;
+}
+
+.toast-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.toast-title {
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.toast-subtitle {
+  color: var(--text-muted);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s ease;
+}
+
+.toast-close-btn:hover {
+  color: var(--text-primary);
+}
+
+/* Greeting Section */
+.greeting-section {
+  padding: 4px 0 2px 0;
+}
+
+.greeting-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+/* Current Page Card */
+.current-page-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background-color: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.current-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.current-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-title-row {
+  display: flex;
+  align-items: center;
+}
+
+.page-title-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.page-url-text {
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+
+/* Status Message Rows inside Current Page */
+.status-msg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  padding-top: 4px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.status-msg-row.saving {
+  color: var(--accent-blue);
+}
+
+.status-msg-row.success {
+  color: #60A5FA;
+}
+
+.status-msg-row.cached {
+  color: var(--text-muted);
+}
+
+.status-msg-row.error {
+  color: #F87171;
+}
+
+.status-check-icon {
+  font-weight: bold;
+}
+
+.mini-spinner {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid rgba(37, 99, 235, 0.3);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Bookmark Save Button & 2-Second Tooltip */
+.save-btn-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.bookmark-save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+}
+
+.bookmark-save-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.bookmark-save-btn.cached {
+  color: var(--accent-blue);
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.bookmark-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.save-icon-spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+.save-tooltip {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background-color: #1A1A1A;
+  color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  animation: fadeIn 0.12s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* Saved Pages Section */
+.saved-pages-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.saved-pages-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.saved-pages-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-count-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  background-color: rgba(37, 99, 235, 0.15);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.clear-cache-subtle-btn {
+  background: none;
+  border: none;
+  font-size: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: color 0.15s ease;
+}
+
+.clear-cache-subtle-btn:hover {
+  color: #F87171;
+}
+
+.saved-empty-box {
+  padding: 12px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.saved-pages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.saved-page-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background-color: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.saved-page-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.saved-page-item.selected {
+  border-color: var(--accent-blue);
+  background-color: rgba(37, 99, 235, 0.08);
+}
+
+.saved-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.saved-item-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-item-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 2px;
+  transition: color 0.15s ease;
+}
+
+.saved-item-delete-btn:hover {
+  color: #F87171;
+}
+
+.saved-item-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.saved-item-domain {
+  color: var(--text-muted);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+
+.saved-item-meta-dot {
+  font-size: 8px;
+  opacity: 0.6;
+}
+
+.saved-item-meta-chunk {
+  color: var(--text-muted);
+}
+
+.saved-item-meta-date {
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+/* Search Section Header & Badges */
+.search-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.search-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.search-count-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  background-color: rgba(37, 99, 235, 0.15);
+  padding: 1px 6px;
+  border-radius: 10px;
 }
