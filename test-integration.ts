@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { chunkContent } from './src/utils/chunkContent'
-import { searchCachedContent } from './src/utils/search'
+import { searchCachedContent, searchUnifiedContent } from './src/utils/search'
 import {
   clearAllCache,
   deleteDocument,
@@ -137,6 +137,25 @@ async function runIntegrationTests() {
   const searchEmpty = await searchCachedContent('algorithms', { dbInstance: db })
   assert(searchEmpty.length === 0, 'Search over cleared cache returns empty array without error')
   console.log('✓ Passed: Cache clear and graceful empty state')
+
+  // Step 9: Unified Search Mixed Pipeline (Active Page + Saved Pages)
+  // Re-save Article 2
+  const chunkedArticle2 = chunkContent(article2)
+  await saveDocumentAndChunks(article2, chunkedArticle2, db)
+
+  // Search with active page set to Article 1 (unsaved)
+  const unifiedMixed = await searchUnifiedContent('language computers', {
+    dbInstance: db,
+    currentTabUrl: article1.url,
+    currentContent: article1,
+  })
+
+  assert(unifiedMixed.length >= 2, 'Found matches from both active page and saved Article 2')
+  const currentPageItem = unifiedMixed.find((r) => r.isCurrentPage === true)
+  const savedPageItem = unifiedMixed.find((r) => !r.isCurrentPage)
+  assert(!!currentPageItem, 'Contains current page result')
+  assert(!!savedPageItem, 'Contains saved page result')
+  console.log('✓ Passed: Unified search combines active page and saved content with correct labels')
 
   db.close()
   console.log('--- ALL END-TO-END INTEGRATION TESTS PASSED SUCCESSFULLY ---')

@@ -75,18 +75,15 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 ## Current Technology Stack
 
 ### Confirmed & Implemented
-- **Chrome Extension Manifest V3:** Modern Chrome extension platform configuration.
-- **Chrome Side Panel API:** Native sidebar integration via `chrome.sidePanel`.
-- **Background Service Worker:** Service worker (`src/background.ts`) managing extension lifecycle, side panel behaviors, and message routing.
-- **Content Script:** Content script (`src/content.ts`) with Mozilla Readability (`@mozilla/readability`) for clean article extraction.
-- **Typed Messaging Contract:** Discriminated union message protocol (`src/types/messaging.ts`) supporting reachability (`PING`), tab querying (`GET_ACTIVE_TAB`), metadata (`GET_PAGE_INFO`), and content extraction (`EXTRACT_PAGE_CONTENT`).
-- **Webpage Content Extraction:** Mozilla Readability (`@mozilla/readability`) parser executed safely on cloned document nodes.
-- **Paragraph-Aware Chunking:** Deterministic text chunking engine (`src/utils/chunkContent.ts`) with soft ~1,000 char target and hard 1,500 char max, preserving heading contexts and reading order.
-- **Local IndexedDB Persistence:** Native IndexedDB storage layer (`src/utils/storage.ts`) storing normalized documents and sequential chunks with atomic transactional updates, stale chunk purges, individual deletion, and full cache clear.
-- **Local Keyword Search Engine:** Client-side lexical ranking engine (`src/utils/search.ts`) with normalized multi-term query tokenization, exact-phrase scoring, title boosting, passage frequency weighting, deterministic tie-breaking, and safe text highlighting.
-- **Frontend Framework:** React 19 + TypeScript.
-- **Build Tool:** Vite 8 configured for multi-entry extension packaging (`base: './'`).
-- **Styling:** Custom dark developer theme adhering to strict palette (`#0D0D0D`, `#2563EB`, `#FFFFFF`).
+- **Chrome Extension Platform:** Manifest V3 (`public/manifest.json`), Side Panel API (`chrome.sidePanel`), Background Service Worker (`src/background.ts`).
+- **Frontend Framework & Language:** React 19, TypeScript (`strict: true`), HTML5, CSS3.
+- **Build Tooling & Bundling:** Vite 8 configured for multi-entry extension asset packaging (`base: './'`).
+- **Webpage Content Extraction:** Mozilla Readability (`@mozilla/readability`) executed within content script (`src/content.ts`) on DOM clones.
+- **Content Segmentation:** Paragraph-aware chunking engine (`src/utils/chunkContent.ts`) with soft ~1,000 char target and hard 1,500 char max, preserving heading contexts and reading order.
+- **Client-Side Persistence:** Browser-native IndexedDB (`src/utils/storage.ts`, `lagzero_local_db`) storing documents and chunks with atomic transactional updates, URL normalization, stale chunk purging, and cache clearance.
+- **Unified & Keyword Search:** Client-side lexical ranking engine (`src/utils/search.ts`) supporting unified retrieval across unsaved active tabs and saved IndexedDB content, multi-term query tokenization, exact-phrase boosting, title weighting, and highlighted match passages.
+- **Testing & Verification:** TypeScript execution via `tsx`, in-memory IndexedDB emulation with `fake-indexeddb`, ESLint (`@eslint/js`, `typescript-eslint`).
+- **Design System:** Minimal dark production theme (`#0D0D0D`, `#2563EB`, `#FFFFFF`) designed specifically for Chrome's narrow Side Panel.
 
 ### Planned Stack (In Progress / Future Phases)
 - **Local Embeddings & Vector Search:** In-browser embeddings / vector indexing *(Phase 2, planned)*
@@ -97,18 +94,19 @@ Keyword Search (Passage Matches)    Local Semantic Embeddings
 
 ## Project Status & Roadmap
 
-### Phase 1 — Local Content Foundation
-*Goal: Establish Chrome extension infrastructure, robust webpage content extraction, IndexedDB caching, and local keyword search.*
+### Phase 1 — Local Content Foundation (Completed & Verified)
+*Goal: Establish Chrome extension infrastructure, robust webpage content extraction, IndexedDB caching, local keyword search, unified tab/cache retrieval, and a refined minimal sidebar UI.*
 
 | Milestone | Description | Status |
 | :--- | :--- | :--- |
 | **Milestone 1** | **Chrome Extension Setup:** MV3 manifest, side panel integration, Vite build, React+TS scaffold, dark UI | **Completed** (Verified in Chrome) |
-| **Milestone 2** | **Extension Communication:** Typed message passing between sidebar, background worker, and active tab content script | **Completed** (Implemented and manually verified in Chrome) |
+| **Milestone 2** | **Extension Communication:** Typed message passing between sidebar, background worker, and active tab content script | **Completed** (Verified in Chrome) |
 | **Milestone 3** | **Content Extraction:** Extract clean readability text, title, URL, and timestamp via Mozilla Readability | **Completed** (Verified in Chrome) |
 | **Milestone 4** | **Chunking & Metadata:** Heading-aware content segmentation with source tracking | **Completed** (Verified in Chrome) |
 | **Milestone 5** | **IndexedDB Storage:** Persistent page and chunk cache with freshness policy & purge controls | **Completed** (Verified in Chrome) |
 | **Milestone 6** | **Local Keyword Search:** Fast client-side lexical search over stored passages | **Completed** (Verified in Chrome) |
-| **Milestone 7** | **Phase 1 Validation:** End-to-end extraction, storage, and offline search verification | **Implemented** (Build/lint/tests verified; manual Chrome verification pending) |
+| **Milestone 7** | **Phase 1 Validation & Stability:** End-to-end extraction, storage, and offline search verification | **Completed** (Verification completed and confirmed) |
+| **Phase 1.1** | **Minimal Production UI & Unified Search:** Unified search across unsaved active tab and saved IndexedDB cache, bookmark save workflow, verified connection indicator, and production dark styling matching the reference design | **Completed** (Verified in Chrome) |
 
 ### Phase 2 — Local RAG + AI (Planned)
 *Goal: Integrate local embeddings, on-device semantic search, local LLM inference, and single-provider cloud fallback.*

@@ -1,5 +1,12 @@
-import type { CachedChunk, CachedDocument, SearchOptions, SearchResult } from '../types/messaging'
-import { getAllCachedDocumentsAndChunks } from './storage'
+import type {
+  CachedChunk,
+  CachedDocument,
+  SearchOptions,
+  SearchResult,
+  UnifiedSearchOptions,
+} from '../types/messaging'
+import { chunkContent } from './chunkContent'
+import { getAllCachedDocumentsAndChunks, normalizeUrl } from './storage'
 
 /**
  * Normalizes query string:
@@ -221,4 +228,151 @@ export async function searchCachedContent(
 
   // Apply limit
   return results.slice(0, Math.max(1, limit))
+}
+
+/**
+ * Unified Search:
+ * Searches both:
+ * 1. The readable content of the currently active webpage (extracted/chunked temporarily when provided).
+ * 2. All previously saved webpage chunks stored in IndexedDB.
+ *
+ * Rules:
+ * - Current page is searchable even when not saved.
+ * - Does NOT persist temporary current-page chunks to IndexedDB.
+ * - If current page is already saved in IndexedDB, reuses existing saved content to prevent duplicate results.
+ * - Merges and ranks results from both sources deterministically.
+ * - Distinguishes current-page results with `isCurrentPage: true`.
+ */
+export async function searchUnifiedContent(
+  query: string,
+  options: UnifiedSearchOptions = {}
+): Promise<SearchResult[]> {
+  const { limit = 20, dbInstance, currentTabUrl, currentContent, currentChunkedDoc } = options
+  const { normalizedQuery, tokens } = normalizeQuery(query)
+
+  if (tokens.length === 0) {
+    return []
+  }
+
+  // 1. Get saved search results from IndexedDB
+  const savedResults = await searchCachedContent(query, { limit: 100, dbInstance })
+
+  // Check if currentTabUrl matches an already saved document
+  const normalizedCurrentUrl = currentTabUrl ? normalizeUrl(currentTabUrl) : ''
+  const isCurrentPageAlreadySaved = normalizedCurrentUrl
+    ? savedResults.some((res) => res.documentId === normalizedCurrentUrl)
+    : false
+
+  // Mark saved results that belong to the current page if it is saved
+  for (const res of savedResults) {
+    if (normalizedCurrentUrl && res.documentId === normalizedCurrentUrl) {
+      res.isCurrentPage = true
+    }
+  }
+
+  // 2. If current page is NOT saved, but we have temporary content or chunks, search it
+  const currentTabResults: SearchResult[] = []
+  if (!isCurrentPageAlreadySaved && (currentChunkedDoc || currentContent)) {
+    // Obtain chunks
+    let chunks = currentChunkedDoc?.chunks
+    if (!chunks && currentContent) {
+      chunks = chunkContent(currentContent).chunks
+    }
+
+    if (chunks && chunks.length > 0) {
+      const docTitle = currentContent?.title || currentChunkedDoc?.title || 'Current Page'
+      const docUrl = currentContent?.url || currentChunkedDoc?.sourceUrl || currentTabUrl || ''
+      const docId = normalizedCurrentUrl || docUrl
+
+      // Create a virtual CachedDocument for scoring
+      const virtualDoc: CachedDocument = {
+        id: docId,
+        title: docTitle,
+        sourceUrl: docUrl,
+        extractedText: currentContent?.textContent || '',
+        excerpt: currentContent?.excerpt || null,
+        byline: currentContent?.byline || null,
+        siteName: currentContent?.siteName || null,
+        publishedTime: currentContent?.publishedTime || null,
+        extractedAt: currentContent?.extractedAt || Date.now(),
+        cachedAt: 0,
+        updatedAt: 0,
+        totalChunks: chunks.length,
+        totalCharacters: chunks.reduce((acc, c) => acc + c.characterCount, 0),
+        schemaVersion: 1,
+      }
+
+      for (const chunk of chunks) {
+        const virtualChunk: CachedChunk = {
+          id: chunk.id,
+          documentId: docId,
+          chunkIndex: chunk.index,
+          text: chunk.text,
+          characterCount: chunk.characterCount,
+          headingContext: chunk.headingContext,
+          documentTitle: docTitle,
+          sourceUrl: docUrl,
+          extractedAt: chunk.extractedAt,
+        }
+
+        const { score, matchedTerms, exactPhraseMatch, titleMatch } = scorePassage(
+          virtualChunk,
+          virtualDoc,
+          normalizedQuery,
+          tokens
+        )
+
+        if (score > 0 && matchedTerms.length > 0) {
+          currentTabResults.push({
+            documentId: docId,
+            documentTitle: docTitle,
+            sourceUrl: docUrl,
+            chunkId: chunk.id,
+            chunkIndex: chunk.index,
+            passageText: chunk.text,
+            characterCount: chunk.characterCount,
+            relevanceScore: score,
+            matchedTerms,
+            headingContext: chunk.headingContext,
+            exactPhraseMatch,
+            titleMatch,
+            isCurrentPage: true,
+          })
+        }
+      }
+    }
+  }
+
+  // 3. Merge results with deduplication by chunkId/passageText
+  const merged: SearchResult[] = [...currentTabResults, ...savedResults]
+  const seenPassages = new Set<string>()
+  const deduplicated: SearchResult[] = []
+
+  for (const item of merged) {
+    const key = `${item.documentId}::${item.chunkIndex}`
+    if (!seenPassages.has(key)) {
+      seenPassages.add(key)
+      deduplicated.push(item)
+    }
+  }
+
+  // 4. Deterministic Ranking:
+  // - Higher relevance score first
+  // - Current page results tie-broken above saved results if equal score
+  // - Document title ascending
+  // - Chunk index ascending
+  deduplicated.sort((a, b) => {
+    if (b.relevanceScore !== a.relevanceScore) {
+      return b.relevanceScore - a.relevanceScore
+    }
+    if (a.isCurrentPage && !b.isCurrentPage) return -1
+    if (!a.isCurrentPage && b.isCurrentPage) return 1
+    const titleCompare = a.documentTitle.localeCompare(b.documentTitle)
+    if (titleCompare !== 0) {
+      return titleCompare
+    }
+    return a.chunkIndex - b.chunkIndex
+  })
+
+  return deduplicated.slice(0, Math.max(1, limit))
 }

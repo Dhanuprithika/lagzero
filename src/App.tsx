@@ -14,11 +14,10 @@ import type {
   TabInfo,
 } from './types/messaging'
 import { chunkContent } from './utils/chunkContent'
-import { searchCachedContent } from './utils/search'
+import { searchUnifiedContent } from './utils/search'
 import {
   checkDocumentCacheStatus,
   clearAllCache,
-  deleteDocument,
   getDocumentWithChunks,
   listCachedDocuments,
   saveDocumentAndChunks,
@@ -103,12 +102,6 @@ interface SearchState {
   errorMessage?: string
 }
 
-const GREETINGS = [
-  'What would you like to do?',
-  'Ready to explore your saved web content.',
-  'What shall we review today?',
-]
-
 export default function App() {
   const [connState, setConnState] = useState<ConnectionState>({
     status: 'idle',
@@ -135,14 +128,6 @@ export default function App() {
     results: [],
     hasSearched: false,
   })
-
-  // Toast notification for verified connection
-  const [connectionToast, setConnectionToast] = useState<{
-    visible: boolean
-    title?: string
-  }>({ visible: false })
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastConnectedTabIdRef = useRef<number | null>(null)
 
   // Refreshes the list of cached documents and storage quota
   const refreshStorageData = useCallback(async (currentUrl?: string) => {
@@ -286,22 +271,6 @@ export default function App() {
         pageInfo: pageInfoResponse.data,
         lastTestedAt: new Date().toLocaleTimeString(),
       })
-
-      // Show temporary connection toast if new tab connected
-      if (lastConnectedTabIdRef.current !== activeTab.id) {
-        lastConnectedTabIdRef.current = activeTab.id
-        if (toastTimerRef.current) {
-          clearTimeout(toastTimerRef.current)
-        }
-        setConnectionToast({
-          visible: true,
-          title: pageInfoResponse.data.title || activeTab.title,
-        })
-        toastTimerRef.current = setTimeout(() => {
-          setConnectionToast({ visible: false })
-          toastTimerRef.current = null
-        }, 5500)
-      }
 
       // Check cache status for active tab
       if (activeTab.url) {
@@ -450,7 +419,11 @@ export default function App() {
 
       // Automatically refresh active search results if a query is active
       if (searchState.query.trim()) {
-        const updatedResults = await searchCachedContent(searchState.query.trim())
+        const updatedResults = await searchUnifiedContent(searchState.query.trim(), {
+          currentTabUrl: content.url,
+          currentContent: content,
+          currentChunkedDoc: chunked,
+        })
         setSearchState((prev) => ({
           ...prev,
           results: updatedResults,
@@ -499,36 +472,7 @@ export default function App() {
     }
   }, [])
 
-  // Delete Individual Cached Document
-  const handleDeleteCachedDoc = useCallback(
-    async (docIdOrUrl: string, e?: React.MouseEvent) => {
-      if (e) e.stopPropagation()
 
-      try {
-        await deleteDocument(docIdOrUrl)
-        if (storageState.selectedDoc?.document.id === docIdOrUrl) {
-          setStorageState((prev) => ({ ...prev, selectedDoc: undefined }))
-        }
-        await refreshStorageData(connState.activeTab?.url)
-
-        // Automatically refresh active search results if a query is active
-        if (searchState.query.trim()) {
-          const updatedResults = await searchCachedContent(searchState.query.trim())
-          setSearchState((prev) => ({
-            ...prev,
-            results: updatedResults,
-          }))
-        }
-      } catch (err) {
-        setStorageState((prev) => ({
-          ...prev,
-          status: 'error',
-          errorMessage: err instanceof Error ? err.message : 'Failed to delete cached document.',
-        }))
-      }
-    },
-    [storageState.selectedDoc?.document.id, refreshStorageData, connState.activeTab?.url, searchState.query]
-  )
 
   // Clear Entire Cache with Confirmation
   const handleClearCache = useCallback(async () => {
@@ -564,7 +508,7 @@ export default function App() {
     }
   }, [refreshStorageData, connState.activeTab?.url])
 
-  // Milestone 6 Local Keyword Search Handler
+  // Unified Keyword Search Handler (Active Tab + Saved Pages)
   const handleSearch = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
     const query = searchState.query.trim()
@@ -586,7 +530,18 @@ export default function App() {
     }))
 
     try {
-      const results = await searchCachedContent(query)
+      // If we don't have extracted content for current active tab, try to extract it non-persistently
+      let currentContent = extractState.content
+      if (!currentContent) {
+        currentContent = await extractContent()
+      }
+
+      const results = await searchUnifiedContent(query, {
+        currentTabUrl: connState.activeTab?.url,
+        currentContent,
+        currentChunkedDoc: chunkState.chunkedDoc,
+      })
+
       setSearchState((prev) => ({
         ...prev,
         status: 'success',
@@ -601,7 +556,7 @@ export default function App() {
         hasSearched: true,
       }))
     }
-  }, [searchState.query])
+  }, [searchState.query, extractState.content, extractContent, connState.activeTab?.url, chunkState.chunkedDoc])
 
   const handleClearSearch = useCallback(() => {
     setSearchState({
@@ -662,9 +617,6 @@ export default function App() {
       if (saveTooltipTimerRef.current) {
         clearTimeout(saveTooltipTimerRef.current)
       }
-      if (toastTimerRef.current) {
-        clearTimeout(toastTimerRef.current)
-      }
       if (typeof chrome !== 'undefined' && chrome.tabs) {
         if (chrome.tabs.onActivated) {
           chrome.tabs.onActivated.removeListener(handleTabActivated)
@@ -676,22 +628,15 @@ export default function App() {
     }
   }, [testConnection, refreshStorageData])
 
-  const currentPageTitle =
-    connState.pageInfo?.title ||
-    connState.activeTab?.title ||
-    (connState.status === 'checking' ? 'Detecting active page…' : 'No active page detected')
-
-  const currentPageUrl = connState.pageInfo?.url || connState.activeTab?.url
-
   return (
     <div className="sidebar-container">
-      {/* 1. Header with branding & tagline */}
+      {/* 1. Header: Bolt Icon, LagZero, Tagline, subtle status dot at top right */}
       <header className="sidebar-header">
         <div className="brand">
           <span className="brand-icon" aria-hidden="true">
             <svg
-              width="16"
-              height="16"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -716,46 +661,98 @@ export default function App() {
         </div>
       </header>
 
-      {/* 2. Connection Notification Toast (Auto-dismissing) */}
-      {connectionToast.visible && (
-        <aside className="connection-toast" role="status" aria-live="polite">
-          <div className="toast-content">
-            <span className="toast-indicator" aria-hidden="true" />
-            <div className="toast-text">
-              <span className="toast-title">Connected to this tab</span>
-              {connectionToast.title && (
-                <span className="toast-subtitle" title={connectionToast.title}>
-                  {connectionToast.title}
-                </span>
-              )}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="toast-close-btn"
-            onClick={() => setConnectionToast({ visible: false })}
-            aria-label="Dismiss notification"
-          >
-            &times;
-          </button>
-        </aside>
-      )}
-
       {/* Main Content Area */}
       <main className="sidebar-content">
-        {/* 3. Greeting Section */}
-        <section className="greeting-section" aria-label="Assistant greeting">
-          <h1 className="greeting-text">{GREETINGS[0]}</h1>
-        </section>
+        {/* 2. Heading */}
+        <section className="search-section-wrap" aria-label="Search">
+          <h1 className="search-main-heading">Find what matters</h1>
 
-        {/* 4. Current Page Section with Compact Save Button */}
-        <section className="current-page-card" aria-label="Current page">
-          <div className="current-page-header">
-            <span className="section-label">Current page</span>
+          {/* Unified Search Input Form with Telegram-style paper-plane button */}
+          <form className="unified-search-form" onSubmit={handleSearch}>
+            <div className="unified-search-input-box">
+              <span className="search-leading-icon" aria-hidden="true">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </span>
+              <input
+                type="text"
+                className="unified-search-input"
+                placeholder="Search your browsing content..."
+                value={searchState.query}
+                onChange={(e) => setSearchState((prev) => ({ ...prev, query: e.target.value }))}
+                aria-label="Search browsing content"
+                disabled={searchState.status === 'searching'}
+              />
+              {searchState.query && (
+                <button
+                  type="button"
+                  className="search-clear-btn"
+                  onClick={handleClearSearch}
+                  title="Clear search"
+                  aria-label="Clear search input"
+                >
+                  &times;
+                </button>
+              )}
+              <button
+                type="submit"
+                className="search-submit-plane-btn"
+                disabled={!searchState.query.trim() || searchState.status === 'searching'}
+                aria-label="Submit search"
+                title="Search"
+              >
+                {searchState.status === 'searching' ? (
+                  <svg
+                    className="save-icon-spinner"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m22 2-7 20-4-9-9-4Z" />
+                    <path d="M22 2 11 13" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* 3. Action Row: Bookmark Save button on Left, Green Connect Indicator on Right */}
+          <div className="action-control-row">
             <div className="save-btn-wrapper">
               <button
                 type="button"
-                className={`bookmark-save-btn ${storageState.isCurrentPageCached ? 'cached' : ''}`}
+                className={`minimal-bookmark-btn ${storageState.isCurrentPageCached ? 'cached' : ''}`}
                 onClick={handleSaveToCache}
                 disabled={storageState.status === 'saving'}
                 onPointerEnter={handleSavePointerEnter}
@@ -766,7 +763,7 @@ export default function App() {
                   storageState.status === 'saving'
                     ? 'Saving page locally…'
                     : storageState.isCurrentPageCached
-                    ? 'Update saved page locally'
+                    ? 'Page already saved locally'
                     : 'Save page locally'
                 }
               >
@@ -808,271 +805,100 @@ export default function App() {
                 </div>
               )}
             </div>
-          </div>
 
-          <div className="current-page-body">
-            <div className="page-title-row">
-              <span className="page-title-text" title={currentPageTitle}>
-                {currentPageTitle}
+            {/* Connection Status indicator on Right */}
+            <div
+              className={`minimal-connect-indicator ${connState.status === 'connected' ? 'connected' : 'disconnected'}`}
+              title={
+                connState.status === 'connected'
+                  ? 'Connected to active tab'
+                  : connState.status === 'checking'
+                  ? 'Verifying tab connection…'
+                  : 'Tab disconnected'
+              }
+            >
+              <span className="connect-check-circle" aria-hidden="true">
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="m9 12 2 2 4-4" />
+                </svg>
               </span>
+              <span className="connect-label">Connect</span>
             </div>
-
-            {currentPageUrl && (
-              <span className="page-url-text" title={currentPageUrl}>
-                {currentPageUrl}
-              </span>
-            )}
-
-            {/* Operation Feedback */}
-            {storageState.status === 'saving' && (
-              <div className="status-msg-row saving" role="status">
-                <span className="mini-spinner" aria-hidden="true" />
-                <span>Saving page to local storage…</span>
-              </div>
-            )}
-
-            {storageState.status === 'saved' && (
-              <div className="status-msg-row success" role="status">
-                <span className="status-check-icon" aria-hidden="true">✓</span>
-                <span>Saved locally{storageState.lastActionAt ? ` at ${storageState.lastActionAt}` : ''}</span>
-              </div>
-            )}
-
-            {storageState.isCurrentPageCached && storageState.status !== 'saving' && storageState.status !== 'saved' && (
-              <div className="status-msg-row cached">
-                <span>Already saved in local cache</span>
-              </div>
-            )}
-
-            {storageState.status === 'error' && storageState.errorMessage && (
-              <div className="status-msg-row error" role="alert">
-                <span>{storageState.errorMessage}</span>
-              </div>
-            )}
-
-            {connState.status === 'error' && connState.errorMessage && (
-              <div className="status-msg-row error" role="alert">
-                <span>{connState.errorMessage}</span>
-              </div>
-            )}
           </div>
         </section>
 
-        {/* 5. Saved Pages Section */}
-        <section className="saved-pages-section" aria-label="Saved pages">
-          <div className="saved-pages-header">
-            <div className="saved-pages-title-wrap">
-              <span className="section-label">Saved pages</span>
-              <span className="section-count-badge" aria-label={`${storageState.cachedList.length} pages saved`}>
-                {storageState.cachedList.length}
+        {/* 4. Search Results Area */}
+        <section className="results-container-area" aria-label="Search results area">
+          {!searchState.hasSearched ? (
+            <div className="results-empty-state-box">
+              <span className="results-empty-icon" aria-hidden="true">
+                <svg
+                  width="36"
+                  height="36"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="9" y1="15" x2="15" y2="15" />
+                </svg>
               </span>
+              <h2 className="results-empty-title">Search results will appear here</h2>
+              <p className="results-empty-desc">
+                Find relevant information from this page and your saved content.
+              </p>
             </div>
-            {storageState.cachedList.length > 0 && (
-              <button
-                type="button"
-                className="clear-cache-subtle-btn"
-                onClick={handleClearCache}
-                title="Clear all saved pages from local cache"
-              >
-                Clear all
-              </button>
-            )}
-          </div>
-
-          {storageState.cachedList.length === 0 ? (
-            <div className="saved-empty-box">
-              <span>No pages saved yet. Click the bookmark icon above to save this page locally.</span>
+          ) : searchState.status === 'searching' ? (
+            <div className="results-searching-box">
+              <span className="mini-spinner" aria-hidden="true" />
+              <span>Searching active page and saved content…</span>
+            </div>
+          ) : searchState.status === 'error' ? (
+            <div className="results-error-box" role="alert">
+              <span>{searchState.errorMessage || 'An error occurred during search.'}</span>
+            </div>
+          ) : searchState.results.length === 0 ? (
+            <div className="results-empty-state-box">
+              <span className="results-empty-icon" aria-hidden="true">
+                <svg
+                  width="36"
+                  height="36"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </span>
+              <h2 className="results-empty-title">No matching passages found</h2>
+              <p className="results-empty-desc">
+                No passages in the current page or your saved cache matched &ldquo;{searchState.query}&rdquo;.
+              </p>
             </div>
           ) : (
-            <div className="saved-pages-list" aria-label="List of saved pages">
-              {storageState.cachedList.map((doc) => {
-                let hostname: string
-                try {
-                  hostname = new URL(doc.sourceUrl).hostname.replace(/^www\./, '')
-                } catch {
-                  hostname = doc.sourceUrl
-                }
-                const isSelected = storageState.selectedDoc?.document.id === doc.id
-
-                return (
-                  <div
-                    key={doc.id}
-                    className={`saved-page-item ${isSelected ? 'selected' : ''}`}
-                    onClick={() => handleSelectCachedDoc(doc.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        handleSelectCachedDoc(doc.id)
-                      }
-                    }}
-                    aria-label={`View cached document ${doc.title}`}
-                  >
-                    <div className="saved-item-header">
-                      <span className="saved-item-title" title={doc.title}>
-                        {doc.title || 'Untitled Page'}
-                      </span>
-                      <button
-                        type="button"
-                        className="saved-item-delete-btn"
-                        onClick={(e) => handleDeleteCachedDoc(doc.id, e)}
-                        title="Delete page from cache"
-                        aria-label={`Delete ${doc.title} from cache`}
-                      >
-                        &times;
-                      </button>
-                    </div>
-                    <div className="saved-item-meta-row">
-                      <span className="saved-item-domain" title={doc.sourceUrl}>
-                        {hostname}
-                      </span>
-                      <span className="saved-item-meta-dot">&bull;</span>
-                      <span className="saved-item-meta-chunk">{doc.totalChunks} chunks</span>
-                      <span className="saved-item-meta-dot">&bull;</span>
-                      <span className="saved-item-meta-date">
-                        {new Date(doc.updatedAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Selected Cached Document Detail View (Offline) */}
-          {storageState.selectedDoc && (
-            <div className="selected-cache-detail" aria-label="Selected cached document detail">
-              <div className="selected-cache-header">
-                <div className="selected-cache-title-wrap">
-                  <span className="selected-cache-badge">Cached Content (Offline)</span>
-                  <h2 className="selected-cache-title">{storageState.selectedDoc.document.title}</h2>
-                  <div className="selected-cache-url">{storageState.selectedDoc.document.sourceUrl}</div>
-                </div>
-                <button
-                  type="button"
-                  className="selected-cache-close-btn"
-                  onClick={() => setStorageState((prev) => ({ ...prev, selectedDoc: undefined }))}
-                  title="Close detail view"
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="selected-cache-stats">
-                <span className="meta-pill">
-                  <strong>Chunks:</strong> {storageState.selectedDoc.document.totalChunks}
-                </span>
-                <span className="meta-pill">
-                  <strong>Characters:</strong> {storageState.selectedDoc.document.totalCharacters.toLocaleString()}
-                </span>
-                <span className="meta-pill">
-                  <strong>Saved:</strong> {new Date(storageState.selectedDoc.document.updatedAt).toLocaleTimeString()}
-                </span>
-              </div>
-
-              <div className="selected-cache-chunks" aria-label="Cached chunks ordered">
-                <span className="chunks-list-heading">Stored Chunks (Ordered)</span>
-                {storageState.selectedDoc.chunks.map((chunk) => (
-                  <article key={chunk.id} className="chunk-item cached-chunk-item">
-                    <div className="chunk-item-header">
-                      <span className="chunk-item-badge">Chunk #{chunk.chunkIndex + 1}</span>
-                      <span className="chunk-item-len">{chunk.characterCount.toLocaleString()} chars</span>
-                    </div>
-                    {chunk.headingContext && (
-                      <div className="chunk-item-section">
-                        <span className="section-label">Section:</span>{' '}
-                        <span className="section-title">{chunk.headingContext}</span>
-                      </div>
-                    )}
-                    <div className="chunk-item-text" tabIndex={0}>
-                      <p className="chunk-text-content">{chunk.text}</p>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* 6. Search Section */}
-        <section className="search-section" aria-label="Search saved content">
-          <div className="search-section-header">
-            <span className="section-label">Search saved content</span>
-            {searchState.hasSearched && searchState.status === 'success' && (
-              <span className="search-count-badge" aria-label={`${searchState.results.length} matches found`}>
-                {searchState.results.length} match{searchState.results.length === 1 ? '' : 'es'}
-              </span>
-            )}
-          </div>
-
-          <form className="search-form" onSubmit={handleSearch}>
-            <div className="search-input-wrapper">
-              <input
-                type="text"
-                className="search-input"
-                placeholder="Search across all saved pages…"
-                value={searchState.query}
-                onChange={(e) => setSearchState((prev) => ({ ...prev, query: e.target.value }))}
-                aria-label="Search query"
-                disabled={searchState.status === 'searching'}
-              />
-              {searchState.query && (
-                <button
-                  type="button"
-                  className="search-clear-input-btn"
-                  onClick={handleClearSearch}
-                  title="Clear search"
-                  aria-label="Clear search input"
-                >
-                  &times;
-                </button>
-              )}
-            </div>
-            <button
-              type="submit"
-              className="search-btn primary"
-              disabled={!searchState.query.trim() || searchState.status === 'searching'}
-            >
-              {searchState.status === 'searching' ? 'Searching…' : 'Search'}
-            </button>
-          </form>
-
-          {/* Empty cache state */}
-          {storageState.cachedList.length === 0 && (
-            <div className="search-hint-box">
-              <span>Save pages using the bookmark icon above to enable offline search.</span>
-            </div>
-          )}
-
-          {/* Searching indicator */}
-          {searchState.status === 'searching' && (
-            <div className="search-loading-box">
-              <span className="loading-spinner" aria-hidden="true" />
-              <span className="loading-text">Scanning saved passages in IndexedDB…</span>
-            </div>
-          )}
-
-          {/* Error state */}
-          {searchState.status === 'error' && searchState.errorMessage && (
-            <div className="error-box" role="alert">
-              <span className="error-text">{searchState.errorMessage}</span>
-            </div>
-          )}
-
-          {/* No matches hint */}
-          {searchState.hasSearched && searchState.status === 'success' && searchState.results.length === 0 && (
-            <div className="search-empty-box">
-              <span>No saved passages matched &ldquo;{searchState.query}&rdquo;. Try another term.</span>
-            </div>
-          )}
-
-          {/* Ranked Results List */}
-          {searchState.results.length > 0 && (
-            <div className="search-results-list" aria-label="Search results">
+            <div className="ranked-results-list" aria-label="Search results">
               {searchState.results.map((res) => (
                 <article
-                  key={res.chunkId}
-                  className="search-result-item"
+                  key={`${res.documentId}::${res.chunkIndex}`}
+                  className="ranked-result-card"
                   onClick={() => handleSelectCachedDoc(res.documentId)}
                   role="button"
                   tabIndex={0}
@@ -1083,38 +909,34 @@ export default function App() {
                   }}
                   aria-label={`Result from ${res.documentTitle}, chunk ${res.chunkIndex + 1}`}
                 >
-                  <div className="search-result-top">
-                    <span className="search-result-doc-title" title={res.documentTitle}>
+                  <div className="result-top-line">
+                    <span className="result-doc-title" title={res.documentTitle}>
                       {res.documentTitle}
                     </span>
-                    <span className="search-result-score-pill">
-                      Score: {res.relevanceScore}
+                    <span className="result-source-badge">
+                      {res.isCurrentPage ? 'Current Page' : 'Saved Page'}
                     </span>
                   </div>
 
-                  <div className="search-result-meta-row">
-                    <span className="search-result-chunk-badge">Chunk #{res.chunkIndex + 1}</span>
+                  <div className="result-meta-line">
+                    <span className="result-chunk-tag">Passage #{res.chunkIndex + 1}</span>
                     {res.headingContext && (
                       <>
-                        <span className="search-result-meta">&bull;</span>
-                        <span className="search-result-heading" title={res.headingContext}>
+                        <span className="result-dot-sep">&bull;</span>
+                        <span className="result-heading-text" title={res.headingContext}>
                           {res.headingContext}
                         </span>
                       </>
                     )}
                     {res.exactPhraseMatch && (
-                      <span className="search-match-badge exact">Exact Phrase</span>
+                      <span className="result-exact-badge">Exact Match</span>
                     )}
                   </div>
 
-                  <div className="search-result-passage" tabIndex={0}>
-                    <p className="search-passage-text">
+                  <div className="result-passage-box">
+                    <p className="result-passage-p">
                       {renderHighlightedText(res.passageText, res.matchedTerms)}
                     </p>
-                  </div>
-
-                  <div className="search-result-url" title={res.sourceUrl}>
-                    {res.sourceUrl}
                   </div>
                 </article>
               ))}
@@ -1122,26 +944,66 @@ export default function App() {
           )}
         </section>
 
-        {/* 7. Future AI Placeholder Input */}
-        <section className="input-section" aria-label="Future AI features">
-          <div className="input-wrapper">
+        {/* 5. Future AI Input Placeholder */}
+        <section className="future-ai-section" aria-label="Future AI features">
+          <div className="future-ai-box">
+            <span className="future-ai-icon" aria-hidden="true">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                <path d="M5 3v4" />
+                <path d="M19 17v4" />
+                <path d="M3 5h4" />
+                <path d="M17 19h4" />
+              </svg>
+            </span>
             <input
               type="text"
               disabled
-              placeholder="Ask anything about saved pages (Coming soon)"
-              aria-label="Ask anything about saved pages (Coming soon)"
-              className="placeholder-input"
+              placeholder="Ask anything about your saved content"
+              aria-label="Ask anything about your saved content"
+              className="future-ai-input"
             />
+            <span className="future-ai-tag">Coming soon</span>
           </div>
         </section>
       </main>
 
-      {/* 8. Minimal Footer with subtle storage estimate */}
+      {/* 6. Footer: Local-first browser assistant (~0 KB used) and settings icon */}
       <footer className="sidebar-footer">
         <span className="footer-text">
-          Local-first browser assistant
-          {storageState.storageEstimate ? ` (~${storageState.storageEstimate} used)` : ''}
+          Local-first browser assistant ({storageState.storageEstimate || '~0 KB used'})
         </span>
+        <button
+          type="button"
+          className="footer-settings-icon-btn"
+          onClick={handleClearCache}
+          title="Clear local cache"
+          aria-label="Clear local cache"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
       </footer>
     </div>
   )

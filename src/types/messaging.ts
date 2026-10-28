@@ -106,11 +106,18 @@ export interface SearchResult {
   updatedAt?: number
   exactPhraseMatch: boolean
   titleMatch: boolean
+  isCurrentPage?: boolean
 }
 
 export interface SearchOptions {
   limit?: number
   dbInstance?: IDBDatabase
+}
+
+export interface UnifiedSearchOptions extends SearchOptions {
+  currentTabUrl?: string
+  currentContent?: ExtractedContent | null
+  currentChunkedDoc?: ChunkedDocument | null
 }
 
 // 2. Request Messages

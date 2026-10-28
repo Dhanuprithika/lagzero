@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto'
 import {
   normalizeQuery,
   searchCachedContent,
+  searchUnifiedContent,
 } from './src/utils/search'
 import {
   clearAllCache,
@@ -235,6 +236,66 @@ async function runSearchTests() {
     const results = await searchCachedContent('abacus calculators', { dbInstance: db })
     assert(results.length === 0, 'Deleted document chunks do not appear in search')
     console.log('✓ Passed: Deleted document chunks removed from search')
+  }
+
+  // Test 12: Unified Search searches unsaved active tab content without persisting it
+  {
+    const unsavedContent: ExtractedContent = {
+      title: 'Breaking Technology News Today',
+      url: 'https://news.example.com/breaking-ai',
+      textContent: 'Generative robotics is transforming manufacturing plants across Europe.',
+      excerpt: 'Robotics news',
+      byline: 'Tech Reporter',
+      siteName: 'Tech Today',
+      publishedTime: null,
+      extractedAt: Date.now(),
+      isTruncated: false,
+      originalLength: 72,
+    }
+
+    const unifiedResults = await searchUnifiedContent('robotics manufacturing', {
+      dbInstance: db,
+      currentTabUrl: unsavedContent.url,
+      currentContent: unsavedContent,
+    })
+
+    assert(unifiedResults.length > 0, 'Unsaved active tab content is found')
+    assert(unifiedResults[0].isCurrentPage === true, 'Marked as isCurrentPage: true')
+    assert(unifiedResults[0].passageText.includes('Generative robotics'), 'Matched passage text returned')
+
+    // Confirm it was NOT persisted to IndexedDB
+    const savedAfter = await searchCachedContent('robotics', { dbInstance: db })
+    assert(savedAfter.length === 0, 'Temporary active page was NOT persisted to IndexedDB')
+    console.log('✓ Passed: Unified Search searches unsaved current page without persistence')
+  }
+
+  // Test 13: Unified Search deduplicates when active tab is already saved
+  {
+    const alreadySavedUrl = 'https://en.wikipedia.org/wiki/Artificial_intelligence'
+    const duplicateContent: ExtractedContent = {
+      title: 'Artificial Intelligence and Neural Networks',
+      url: alreadySavedUrl,
+      textContent: 'Quantum computing is a new paradigm replacing classical models.',
+      excerpt: null,
+      byline: null,
+      siteName: null,
+      publishedTime: null,
+      extractedAt: Date.now(),
+      isTruncated: false,
+      originalLength: 65,
+    }
+
+    const results = await searchUnifiedContent('quantum computing', {
+      dbInstance: db,
+      currentTabUrl: alreadySavedUrl,
+      currentContent: duplicateContent,
+    })
+
+    // Should only have 1 result, not duplicates
+    const matchingCount = results.filter((r) => r.sourceUrl === alreadySavedUrl).length
+    assert(matchingCount === 1, 'No duplicate passages returned for already saved active page')
+    assert(results[0].isCurrentPage === true, 'Saved page matching active tab marked with isCurrentPage: true')
+    console.log('✓ Passed: Unified Search deduplicates when active page is already saved')
   }
 
   // Clean up
